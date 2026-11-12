@@ -215,7 +215,64 @@ and, if `opendkim` **signs** mail (`Mode s`/`sv`), before `opendkim` (the
 local signature then covers the banner as well). Details and checks are in
 `postfix/main.cf.snippet`.
 
-### 3.4 Source installation (/opt layout)
+### 3.4 Rspamd integration (optional)
+
+first-contact already works next to Rspamd: both are Postfix milters, and the
+order in `smtpd_milters` is enough. Keep first-contact after Rspamd so messages
+rejected as spam are not recorded:
+
+```
+smtpd_milters = inet:127.0.0.1:11332 unix:/first-contact/milter.sock
+```
+
+Rspamd's `known_senders` module is the closest native feature: it keeps a
+Redis-backed set of senders for configured sender domains (typically freemail
+domains) and sets `KNOWN_SENDER` / `UNKNOWN_SENDER`. It is not equivalent to
+first-contact: it is global, not per sender/recipient pair, has no
+absence-days rule and no visible banner.
+
+If you only need a native Rspamd header for first-time senders,
+`milter_headers` can expose that symbol. This is independent of first-contact;
+keep using the milter if you need per-recipient precision or the body banner.
+
+`/etc/rspamd/local.d/known_senders.conf`:
+
+```
+enabled = true;
+domains = "/etc/rspamd/local.d/known_senders_domains.map";
+#servers = "127.0.0.1:6379";
+```
+
+The map lists one sender domain per line. Redis must be configured for Rspamd.
+
+`/etc/rspamd/local.d/milter_headers.conf`:
+
+```
+use = ["first_sender"];
+
+custom {
+  first_sender = <<EOD
+  return function(task, common_meta)
+    if task:has_symbol('UNKNOWN_SENDER') then
+      return nil, {['X-Rspamd-First-Sender'] = 'yes'}, {}, {}
+    end
+    return nil, {}, {}, {}
+  end
+EOD;
+}
+```
+
+Notes:
+
+* the header is added by Rspamd, not by first-contact: it uses a different
+  name to avoid confusion;
+* it applies to the whole message, not to each envelope recipient;
+* do not move first-contact before Rspamd just to make the
+  `X-First-Contact` header visible: spam rejected later would still be written
+  to the database;
+* the visible banner remains first-contact's job.
+
+### 3.5 Source installation (/opt layout)
 
 If you do not use the packages, the install script places the code in
 `/opt/first-contact` and creates a wrapper with `PYTHONPATH`:

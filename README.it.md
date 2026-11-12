@@ -211,7 +211,65 @@ Il milter va dopo `rspamd` (i messaggi rifiutati non vanno registrati) e, se
 locale copre anche il banner). Dettagli e verifica in
 `postfix/main.cf.snippet`.
 
-### 3.4 Installazione da sorgente (layout in /opt)
+### 3.4 Integrazione con Rspamd (facoltativa)
+
+first-contact lavora gia' accanto a Rspamd: sono entrambi milter Postfix e basta
+l'ordine in `smtpd_milters`. Tenere first-contact dopo Rspamd, cosi' i messaggi
+rifiutati come spam non vengono registrati:
+
+```
+smtpd_milters = inet:127.0.0.1:11332 unix:/first-contact/milter.sock
+```
+
+Il modulo `known_senders` di Rspamd e' la funzione nativa piu' vicina: mantiene
+in Redis un insieme di mittenti per i domini mittente configurati (di solito i
+domini di posta gratuita) e imposta `KNOWN_SENDER` / `UNKNOWN_SENDER`. Non e'
+equivalente a first-contact: e' globale, non per coppia mittente/destinatario,
+non ha la regola dei giorni di assenza e non aggiunge il banner.
+
+Se serve solo un header nativo Rspamd per il primo mittente, `milter_headers`
+puo' esporre quel simbolo. E' indipendente da first-contact: il milter resta
+necessario per la precisione per destinatario e per il banner nel corpo.
+
+`/etc/rspamd/local.d/known_senders.conf`:
+
+```
+enabled = true;
+domains = "/etc/rspamd/local.d/known_senders_domains.map";
+#servers = "127.0.0.1:6379";
+```
+
+La mappa contiene un dominio mittente per riga. Redis deve essere configurato
+per Rspamd.
+
+`/etc/rspamd/local.d/milter_headers.conf`:
+
+```
+use = ["first_sender"];
+
+custom {
+  first_sender = <<EOD
+  return function(task, common_meta)
+    if task:has_symbol('UNKNOWN_SENDER') then
+      return nil, {['X-Rspamd-First-Sender'] = 'yes'}, {}, {}
+    end
+    return nil, {}, {}, {}
+  end
+EOD;
+}
+```
+
+Note:
+
+* l'header lo aggiunge Rspamd, non first-contact: usa un nome diverso per
+  evitare confusione;
+* vale per l'intero messaggio, non per ogni destinatario envelope;
+* non spostare first-contact prima di Rspamd solo per rendere visibile
+  l'header `X-First-Contact`: la posta rifiutata dopo verrebbe comunque scritta
+  nel database;
+* il banner visibile resta compito di first-contact.
+
+### 3.5 Installazione da sorgente (layout in /opt)
 
 Chi non usa i pacchetti puo' installare lo script, che mette il codice in
 `/opt/first-contact` e crea un wrapper con `PYTHONPATH`:
