@@ -1,7 +1,7 @@
 Source: first-contact
 Section: mail
 Priority: optional
-Maintainer: Francesco De Filippo <francesco@defilippo.org>
+Maintainer: Francesco Defilippo <francesco@defilippo.org>
 Build-Depends: debhelper-compat (= 12), dh-python, python3:any
 Standards-Version: 4.5.0
 Rules-Requires-Root: no

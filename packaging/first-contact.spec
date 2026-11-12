@@ -6,7 +6,7 @@
 %{!?_tmpfilesdir:%global _tmpfilesdir %{_prefix}/lib/tmpfiles.d}
 
 Name:           first-contact
-Version:        1.0.0
+Version:        1.0.1
 Release:        1%{?dist}
 Summary:        Milter Postfix che segnala il primo messaggio da un mittente
 
@@ -64,6 +64,9 @@ install -m 0644 systemd/first-contact-milter.service %{buildroot}%{_unitdir}/fir
 install -d %{buildroot}%{_tmpfilesdir}
 install -m 0644 etc/tmpfiles.d/first-contact.conf %{buildroot}%{_tmpfilesdir}/first-contact.conf
 
+install -d %{buildroot}%{_mandir}/man8
+install -m 0644 man/first-contact.8 %{buildroot}%{_mandir}/man8/first-contact.8
+
 %pre
 getent group firstcontact >/dev/null || groupadd -r firstcontact
 getent passwd firstcontact >/dev/null || \
@@ -86,7 +89,7 @@ fi
 %systemd_postun_with_restart first-contact-milter.service
 
 %files
-%doc README.md examples/sample.eml
+%doc README.md README.it.md examples/sample.eml
 %license LICENSE
 %{_bindir}/first-contact
 %{python3_sitelib}/firstcontact/
@@ -95,7 +98,11 @@ fi
 %config(noreplace) %{_sysconfdir}/first-contact/whitelist.txt
 %{_unitdir}/first-contact-milter.service
 %{_tmpfilesdir}/first-contact.conf
+%{_mandir}/man8/first-contact.8*
 
 %changelog
-* Thu Nov 12 2026 Francesco De Filippo <francesco@defilippo.org> - 1.0.0-1
+* Thu Nov 12 2026 Francesco Defilippo <francesco@defilippo.org> - 1.0.1-1
+- Documentazione in inglese e pagina di manuale first-contact(8).
+
+* Thu Nov 12 2026 Francesco Defilippo <francesco@defilippo.org> - 1.0.0-1
 - Rilascio iniziale.

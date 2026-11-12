@@ -1,0 +1,199 @@
+.TH FIRST-CONTACT 8 "2026-11-12" "first-contact 1.0.1" "System Manager's Manual"
+.SH NAME
+first-contact \- Postfix milter that flags first-time senders
+.SH SYNOPSIS
+.B first-contact
+[\fB\-\-config\fR \fIfile\fR]
+\fIcommand\fR [\fIoptions\fR]
+.SH DESCRIPTION
+.B first-contact
+is a Postfix milter that adds an
+.B X-First-Contact
+header when a recipient receives a message for the first time from a sender,
+or when a known sender returns after a long absence.
+It can also insert a visible warning at the top of the message text.
+.PP
+The milter never stops mail delivery: on error it answers
+.B CONTINUE
+and the header alone is added when the visible warning cannot be applied.
+.SH COMMANDS
+.TP
+.B serve
+Run the milter. Normally started by
+.BR first-contact-milter.service .
+Requires
+.BR pymilter .
+.TP
+.B check
+Report whether a sender is new for a recipient, without sending mail.
+.TP
+.B list
+List stored contacts.
+.TP
+.B stats
+Print database statistics: pairs, senders, recipients and messages.
+.TP
+.B prune
+Delete contacts older than the given number of days.
+.TP
+.B simulate
+Show the header and the visible warning that would be added to a message.
+.TP
+.B doctor
+Check configuration, database, socket, Postfix settings, milter order,
+banner and whitelist.
+.SH OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Show a help message and exit.
+.TP
+.B \-\-version
+Show the program version and exit.
+.TP
+.BI \-\-config " file"
+Configuration file. Default:
+.IR /etc/first-contact/config.ini .
+.SH "CHECK OPTIONS"
+.TP
+.BI \-\-sender " address"
+Envelope sender.
+.TP
+.BI \-\-recipient " address"
+Envelope recipient.
+.TP
+.BI \-\-client " ip"
+SMTP client IP address, used for CIDR whitelist checks.
+.TP
+.B \-\-from-header
+Interpret the
+.B \-\-sender
+value as a
+.B From:
+header value.
+.SH "LIST OPTIONS"
+.TP
+.BI \-\-sender " filter"
+Filter by sender.
+.TP
+.BI \-\-recipient " filter"
+Filter by recipient.
+.TP
+.BI \-\-limit " number"
+Maximum number of rows.
+.TP
+.BI \-\-offset " number"
+Skip the first rows.
+.SH "PRUNE OPTIONS"
+.TP
+.BI \-\-days " number"
+Delete contacts not seen for this many days. Defaults to
+.BR retention_days .
+.TP
+.B \-\-dry\-run
+Show what would be deleted without changing the database.
+.SH "SIMULATE OPTIONS"
+.TP
+.BI \-\-eml " file"
+RFC 5322 message to examine.
+.TP
+.BI \-\-sender " address"
+Envelope sender. Defaults to the
+.B From:
+header.
+.TP
+.BI \-\-recipient " address"
+Envelope recipient. Required.
+.TP
+.BI \-\-client " ip"
+SMTP client IP address.
+.TP
+.BI \-\-helo " name"
+SMTP HELO/EHLO name.
+.TP
+.BI \-\-known\-days " number"
+Pretend the contact happened this many days ago, to test the dormant-sender
+rule.
+.TP
+.BI \-\-db " file"
+Database to use. Defaults to a temporary file; the real database is not
+touched.
+.SH CONFIGURATION
+The configuration file uses the INI format.
+Section
+.B [milter]
+sets the socket, header name and header position;
+.B [banner]
+sets the warning mode, text, subject prefix and limits;
+.B [whitelist]
+lists excluded senders and networks;
+.B [policy]
+controls scope, dormant sender detection and observation mode;
+.B [store]
+sets the SQLite path and retention;
+.B [logging]
+sets log level and syslog output.
+.PP
+After changing the configuration, restart the service:
+.B systemctl restart first-contact-milter
+.PP
+Whitelist files are re-read automatically when they change.
+.SH FILES
+.TP
+.I /etc/first-contact/config.ini
+Main configuration file.
+.TP
+.I /etc/first-contact/whitelist.txt
+Whitelist, one entry per line.
+.TP
+.I /var/lib/first-contact/contacts.db
+SQLite contact database.
+.TP
+.I /var/spool/postfix/first-contact/milter.sock
+Unix socket used by Postfix (inside the Postfix chroot).
+.TP
+.I /usr/lib/systemd/system/first-contact-milter.service
+Systemd service unit.
+.SH NOTES
+The milter must be appended to
+.B smtpd_milters
+in
+.IR /etc/postfix/main.cf .
+.PP
+The body banner is inserted into existing
+.B text/plain
+and
+.B text/html
+parts; it does not create attachments.
+It invalidates the sender's DKIM signatures for the modified message.
+Use
+.B [banner] mode = off
+to leave the body untouched.
+.PP
+Messages that are
+.B multipart/signed
+or
+.B multipart/encrypted
+are not rewritten.
+.SH "EXIT STATUS"
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Runtime or database error.
+.TP
+.B 2
+Usage or configuration error.
+.TP
+.B 3
+Missing dependency.
+.TP
+.B 130
+Interrupted.
+.SH "SEE ALSO"
+.BR postfix (1),
+.BR postconf (1),
+.BR master (5),
+.BR systemd.unit (5)
+.SH AUTHOR
+Francesco Defilippo <francesco@defilippo.org>

@@ -14,6 +14,8 @@ override_dh_auto_install:
 	find debian/first-contact/usr/lib/python3/dist-packages -name __pycache__ -prune -exec rm -rf {} +
 	install -d debian/first-contact/usr/bin
 	install -m 0755 packaging/first-contact debian/first-contact/usr/bin/first-contact
+	install -d debian/first-contact/usr/share/man/man8
+	install -m 0644 man/first-contact.8 debian/first-contact/usr/share/man/man8/first-contact.8
 	install -d debian/first-contact/etc/first-contact
 	install -m 0644 etc/first-contact.ini debian/first-contact/etc/first-contact/config.ini
 	install -m 0644 etc/whitelist.txt debian/first-contact/etc/first-contact/whitelist.txt

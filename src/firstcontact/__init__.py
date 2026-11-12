@@ -6,4 +6,4 @@ Il pacchetto e' volutamente senza dipendenze esterne tranne ``python3-milter``
 Compatibile con Python 3.6+ (Debian 10, Enterprise Linux 8/9/10).
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"

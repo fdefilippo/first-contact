@@ -1,15 +1,15 @@
 # first-contact
 
-Milter per Postfix che avvisa un destinatario quando riceve **per la prima
-volta** da un certo mittente, oppure quando un mittente **noto ricompare dopo
-un'assenza prolungata** (90 giorni per default, configurabile).
+Postfix milter that warns a recipient when they receive a message **for the
+first time** from a given sender, or when a **known sender reappears after a
+long absence** (90 days by default, configurable).
 
-L'avviso e' **visibile all'utente**, non solo tecnico:
+The warning is **visible to the user**, not just technical:
 
-* un **banner in cima al corpo** del messaggio (predefinito), che invita a
-  prestare attenzione ad allegati e link;
-* in alternativa o in aggiunta, un **prefisso nell'oggetto**;
-* sempre, un header `X-First-Contact` utilizzabile nelle regole del client.
+* a **banner at the top of the message body** (default), advising caution with
+  attachments and links;
+* alternatively or in addition, a **subject prefix**;
+* always, an `X-First-Contact` header usable in client rules.
 
 ```
 ATTENZIONE: e' il primo messaggio che ricevi da mario.rossi@example.com.
@@ -17,185 +17,192 @@ Non e' detto che sia pericoloso, ma presta attenzione ad allegati e link:
 non aprire file e non cliccare collegamenti se non ti fidi del mittente.
 ```
 
-Se il milter e' guasto o spento la posta continua a passare
-(`milter_default_action = accept`). Con l'avviso nel corpo il contenuto
-originale resta al suo posto: il banner viene inserito nelle parti testuali
-gia' presenti, senza creare nuove parti MIME e senza trasformare il messaggio
-in un allegato. HTML, allegati e codifiche restano intatti.
+The default text is Italian; it can be replaced in `[banner] text`.
 
-## 1. Come funziona
+If the milter fails or is stopped, mail keeps flowing
+(`milter_default_action = accept`). With the body banner the original content
+stays in place: the banner is inserted into the existing text parts, without
+creating new MIME parts and without turning the message into an attachment.
+HTML, attachments and encodings remain intact.
+
+Italiano: [README.it.md](README.it.md).
+
+## 1. How it works
 
 ```
                  +-----------+   milter    +-------------------+
-mittente --> smtpd --> rspamd --> opendkim --> first-contact --> coda --> LMTP/LDA
+sender --> smtpd --> rspamd --> opendkim --> first-contact --> queue --> LMTP/LDA
                                                       |
                                                       v
                                         /var/lib/first-contact/contacts.db
-                                        tabella contacts(sender, recipient, ...)
+                                        table contacts(sender, recipient, ...)
 ```
 
-* Il milter riceve da Postfix mittente **envelope** (`MAIL FROM`), destinatari
-  (`RCPT TO`), header e corpo del messaggio, alla fine dei dati (`eom`).
-* Per ogni coppia (mittente, destinatario) esegue un `INSERT OR IGNORE` su
-  SQLite: se la riga viene inserita e' la prima volta. L'operazione e'
-  atomica, quindi due copie dello stesso messaggio arrivate insieme non
-  producono due allerte. In alternativa la stessa query distingue il mittente
-  **assente da troppo tempo** (vedi paragrafo 5.1): anche in quel caso solo il
-  primo dei messaggi simultanei produce l'avviso.
-* La whitelist viene consultata **prima** di tutto: se mittente o rete del
-  client corrispondono, il messaggio non riceve alcun avviso e non viene
-  scritto nel database.
-* Se la coppia e' nuova aggiunge un header per **ogni destinatario nuovo**
-  (un messaggio con tre destinatari nuovi riceve tre header, uno per
-  destinatario) e, se previsto, l'avviso visibile (banner e/o oggetto).
-* Ogni errore (database bloccato, eccezione, socket, corpo troppo grande)
-  viene registrato e assorbito: il milter risponde sempre `CONTINUE`, la posta
-  non si ferma. Se l'avviso visibile non e' applicabile resta l'header.
+* The milter receives from Postfix the **envelope** sender (`MAIL FROM`), the
+  recipients (`RCPT TO`), and the message headers and body at the end of data
+  (`eom`).
+* For every (sender, recipient) pair it runs an `INSERT OR IGNORE` on SQLite:
+  if the row is inserted, this is the first message. The operation is atomic,
+  so two copies of the same message arriving together do not produce two
+  warnings. The same query also detects a sender **absent for too long** (see
+  section 5.1): again, only the first of several simultaneous messages raises
+  the warning.
+* The whitelist is checked **before anything else**: if the sender or the
+  client network matches, the message gets no warning and is not written to
+  the database.
+* When the pair is new it adds one header for **each new recipient** (a
+  message with three new recipients gets three headers, one per recipient)
+  and, if configured, the visible warning (banner and/or subject).
+* Every error (locked database, exception, socket, oversized body) is logged
+  and swallowed: the milter always answers `CONTINUE`, mail never stops. If
+  the visible warning cannot be applied, the header remains.
 
-Perche' un milter e non `header_checks`: `header_checks` non conosce lo stato
-per coppia mittente/destinatario e non puo' consultare un database. Un
-`content_filter` comporterebbe una seconda iniezione del messaggio e la
-perdita delle informazioni di envelope. Per modificare il corpo in modo
-selettivo serve un milter.
+Why a milter and not `header_checks`: `header_checks` does not know the state
+of each sender/recipient pair and cannot query a database. A `content_filter`
+would mean injecting the message a second time and losing envelope
+information. Selectively modifying the body requires a milter.
 
-### Come viene aggiunto il banner
+### How the banner is added
 
-L'avviso **non crea nuove parti MIME** e non cambia il `Content-Type` del
-messaggio: viene inserito in cima alle parti testuali gia' presenti.
-
-```
-text/plain                  <- avviso, poi il testo originale
-text/html                   <- box giallo subito dopo <body>, poi l'HTML originale
-multipart/alternative       <- l'avviso entra in entrambe le versioni
-multipart/mixed             <- il testo riceve l'avviso, gli allegati restano allegati
-```
-
-Per ogni parte toccata si decodifica solo il transfer encoding (`base64`,
-`quoted-printable`, `7bit`/`8bit`), si aggiunge il testo e si riapplica la
-stessa codifica. Header, boundary e struttura restano quelli originali: il
-client mostra un normale messaggio leggibile, senza allegati aggiunti e senza
-un `.eml` incorporato. Gli allegati (`Content-Disposition: attachment`) e i
-messaggi inoltrati (`message/rfc822`) non vengono toccati. E' lo stesso
-principio usato dai tool per i disclaimer, per esempio alterMIME.
-
-`multipart/signed` e `multipart/encrypted` non vengono riscritti: qualunque
-modifica invaliderebbe firma o cifratura.
-
-## 2. Contenuto del progetto
+The warning **does not create new MIME parts** and does not change the
+message `Content-Type`: it is inserted at the top of the text parts that
+already exist.
 
 ```
-src/firstcontact/       pacchetto Python (solo stdlib + pymilter per "serve")
-  config.py             lettura/validazione della configurazione INI
-  policy.py             normalizzazione indirizzi, regole "cosa guardare"
-  headers.py            costruzione header sicura (ASCII, folding RFC 5322)
-  banner.py             testo dell'avviso e riscrittura MIME del corpo
-  whitelist.py          mittenti/reti esclusi, con ricarica automatica
-  store.py              SQLite, atomicita' del "primo contatto"
-  engine.py             decisione: header, banner, prefisso oggetto
-  milter_app.py         collante con pymilter (callback SMTP)
+text/plain                  <- warning, then the original text
+text/html                   <- yellow box right after <body>, then the original HTML
+multipart/alternative       <- the warning goes into both versions
+multipart/mixed             <- the text gets the warning, attachments stay attachments
+```
+
+For each modified part only the transfer encoding is decoded (`base64`,
+`quoted-printable`, `7bit`/`8bit`), the text is added and the same encoding is
+reapplied. Headers, boundaries and structure stay as they were: the client
+shows a normal, readable message, with no added attachments and no embedded
+`.eml`. Attachments (`Content-Disposition: attachment`) and forwarded messages
+(`message/rfc822`) are left untouched. This is the same principle used by
+disclaimer tools such as alterMIME.
+
+`multipart/signed` and `multipart/encrypted` are not rewritten: any change
+would invalidate the signature or encryption.
+
+## 2. Project layout
+
+```
+src/firstcontact/       Python package (stdlib only + pymilter for "serve")
+  config.py             INI configuration load and validation
+  policy.py             address normalisation, "what to look at" rules
+  headers.py            safe header construction (ASCII, RFC 5322 folding)
+  banner.py             warning text and body MIME rewriting
+  whitelist.py          excluded senders/networks, with automatic reload
+  store.py              SQLite, atomic "first contact"
+  engine.py             decision: header, banner, subject prefix
+  milter_app.py         pymilter glue (SMTP callbacks)
   cli.py                serve / check / list / stats / prune / doctor / simulate
-etc/first-contact.ini   configurazione di esempio
-etc/whitelist.txt       whitelist di esempio (una voce per riga)
-etc/tmpfiles.d/         permessi di directory al boot
-systemd/                unita' di servizio
-postfix/                modifica a main.cf (note su chroot, ordine e DKIM)
-packaging/              launcher del comando, drop-in systemd, spec RPM
-debian/                 packaging Debian (debhelper, compat 12)
-scripts/install.sh      installazione da sorgente in /opt (dry-run di default)
-scripts/uninstall.sh    rimozione
-scripts/run-tests.sh    test
-scripts/build-deb.sh    pacchetto .deb
-scripts/build-rpm.sh    pacchetto .rpm noarch
-.github/workflows/      build dei pacchetti e release su tag
-tests/                  158 test (unittest, nessuna dipendenza)
-examples/sample.eml     messaggio di prova
+etc/first-contact.ini   example configuration
+etc/whitelist.txt       example whitelist (one entry per line)
+etc/tmpfiles.d/         directory permissions at boot
+systemd/                service unit
+postfix/                main.cf change (notes on chroot, ordering and DKIM)
+packaging/              command launcher, systemd drop-in, RPM spec
+debian/                 Debian packaging (debhelper, compat 12)
+man/                    first-contact(8) manual page
+scripts/install.sh      source install in /opt (dry-run by default)
+scripts/uninstall.sh    removal
+scripts/run-tests.sh    tests
+scripts/build-deb.sh    .deb package
+scripts/build-rpm.sh    noarch .rpm package
+.github/workflows/      package builds and release on tags
+tests/                  161 tests (unittest, no dependencies)
+examples/sample.eml     sample message
 ```
 
-## 3. Installazione
+## 3. Installation
 
-Requisiti: Postfix, Python >= 3.6 e `pymilter` (`python3-milter` su Debian,
-`python3-pymilter` su Enterprise Linux, da EPEL). I pacchetti installano il
-comando, la configurazione, l'unita' systemd e le regole `tmpfiles.d`; creano
-l'utente di servizio `firstcontact` e **abilitano e avviano**
-`first-contact-milter`. Non modificano Postfix: il milter va aggiunto a
-`smtpd_milters` (paragrafo 3.3).
+Requirements: Postfix, Python >= 3.6 and `pymilter` (`python3-milter` on
+Debian, `python3-pymilter` on Enterprise Linux, from EPEL). The packages
+install the command, the configuration, the systemd unit and the
+`tmpfiles.d` rules; they create the `firstcontact` service user and **enable
+and start** `first-contact-milter`. They do not modify Postfix: the milter
+must be added to `smtpd_milters` (section 3.3).
 
-### 3.1 Pacchetti deb e rpm
+### 3.1 deb and rpm packages
 
-Debian e Ubuntu (architettura `all`):
+Debian and Ubuntu (`all` architecture):
 
 ```bash
 sudo apt-get install -y python3-milter
-sudo dpkg -i first-contact_1.0.0_all.deb
+sudo dpkg -i first-contact_1.0.1_all.deb
 ```
 
-Il `.deb` e' compresso con `xz` e non usa `zstd`: si installa anche su
-Debian 10. Su buster (EOL) `python3-milter` va preso da `archive.debian.org`
-(vedi la nota in `scripts/install.sh`).
+The `.deb` is compressed with `xz` and does not use `zstd`: it also installs
+on Debian 10. On buster (EOL) `python3-milter` must be taken from
+`archive.debian.org` (see the note in `scripts/install.sh`).
 
-Enterprise Linux 8, 9 e 10 (noarch; `pymilter` arriva da EPEL):
+Enterprise Linux 8, 9 and 10 (noarch; `pymilter` comes from EPEL):
 
 ```bash
 sudo dnf install -y epel-release
-sudo dnf install ./first-contact-1.0.0-1.el8.noarch.rpm
+sudo dnf install ./first-contact-1.0.1-1.el8.noarch.rpm
 ```
 
-Dove finisce il codice:
+Where the code goes:
 
-| pacchetto | codice Python | comando | configurazione |
+| package | Python code | command | configuration |
 |---|---|---|---|
 | deb | `/usr/lib/python3/dist-packages/firstcontact` | `/usr/bin/first-contact` | `/etc/first-contact/config.ini` |
 | rpm | `/usr/lib/python3.X/site-packages/firstcontact` | `/usr/bin/first-contact` | `/etc/first-contact/config.ini` |
 
-I file di configurazione sono installati come `conffile` (`%config(noreplace)`
-negli RPM): gli aggiornamenti non li sovrascrivono. Non contengono segreti,
-quindi sono leggibili da tutti; la whitelist e il database restano protetti
-dai permessi delle loro directory.
+Configuration files are installed as `conffile` (`%config(noreplace)` in
+RPMs): upgrades do not overwrite them. They contain no secrets, so they are
+world-readable; the whitelist and the database remain protected by their
+directory permissions.
 
-Verifica dopo l'installazione:
+Check after installation:
 
 ```bash
 first-contact doctor
 systemctl status first-contact-milter --no-pager
 ```
 
-### 3.2 Costruire i pacchetti
+### 3.2 Building the packages
 
-Servono `debhelper` (>= 12) e `dh-python` per il deb, `rpm-build` e
-`python3-rpm-macros` per l'RPM. Gli script usano la versione dichiarata in
-`src/firstcontact/__init__.py` e scrivono in `dist/`.
+You need `debhelper` (>= 12) and `dh-python` for the deb, `rpm-build` and
+`python3-rpm-macros` for the RPM. The scripts use the version declared in
+`src/firstcontact/__init__.py` and write to `dist/`.
 
 ```bash
 ./scripts/run-tests.sh
-./scripts/build-deb.sh     # dist/first-contact_1.0.0_all.deb
-./scripts/build-rpm.sh     # dist/first-contact-1.0.0-1.el*.noarch.rpm
+./scripts/build-deb.sh     # dist/first-contact_1.0.1_all.deb
+./scripts/build-rpm.sh     # dist/first-contact-1.0.1-1.el*.noarch.rpm
 ```
 
-L'RPM va costruito dentro la versione target di Enterprise Linux (i bytecode
-e i tag `%{?dist}` dipendono dalla release):
+The RPM must be built inside the target Enterprise Linux release (bytecode
+and `%{?dist}` tags depend on the release):
 
 ```bash
 podman run --rm -v "$PWD:/src:z" -w /src rockylinux:8 \
   bash -c 'dnf install -y rpm-build python3-rpm-macros && ./scripts/build-rpm.sh'
 ```
 
-Il workflow `.github/workflows/build-packages.yml` fa lo stesso in CI: artifact
-a ogni push e pull request, pacchetti allegati alla release GitHub per i tag
-`v*` (creata con `gh release create`, senza action di terze parti).
+The `.github/workflows/build-packages.yml` workflow does the same in CI:
+artifacts on every push and pull request, packages attached to the GitHub
+release for `v*` tags (created with `gh release create`, no third-party
+actions).
 
-### 3.3 Postfix: aggiungere il milter
+### 3.3 Postfix: adding the milter
 
-Il token da aggiungere **in coda** a `smtpd_milters` e':
+The token to append **at the end** of `smtpd_milters` is:
 
 ```
 unix:/first-contact/milter.sock
 ```
 
-Il socket unix e' **dentro** `/var/spool/postfix` perche' `smtpd` gira in
-chroot (`master.cf`, colonna chroot = `y`): da dentro il chroot il percorso e'
-`/first-contact/milter.sock`, sul filesystem
-`/var/spool/postfix/first-contact/milter.sock`. Se si sposta il socket fuori da
-`/var/spool/postfix`, Postfix non lo vede piu'.
+The Unix socket is **inside** `/var/spool/postfix` because `smtpd` runs
+chrooted (`master.cf`, chroot column = `y`): from inside the chroot the path
+is `/first-contact/milter.sock`; on the filesystem it is
+`/var/spool/postfix/first-contact/milter.sock`. If the socket is moved outside
+`/var/spool/postfix`, Postfix no longer sees it.
 
 ```bash
 cp -a /etc/postfix/main.cf /etc/postfix/main.cf.first-contact.$(date +%F)
@@ -203,37 +210,37 @@ postconf -e "smtpd_milters = $(postconf -h smtpd_milters) unix:/first-contact/mi
 postfix check && systemctl reload postfix
 ```
 
-Il milter va dopo `rspamd` (i messaggi rifiutati non vanno registrati) e, se
-`opendkim` **firma** la posta (`Mode s`/`sv`), prima di `opendkim` (la firma
-locale copre anche il banner). Dettagli e verifica in
+The milter must come after `rspamd` (rejected messages must not be recorded)
+and, if `opendkim` **signs** mail (`Mode s`/`sv`), before `opendkim` (the
+local signature then covers the banner as well). Details and checks are in
 `postfix/main.cf.snippet`.
 
-### 3.4 Installazione da sorgente (layout in /opt)
+### 3.4 Source installation (/opt layout)
 
-Chi non usa i pacchetti puo' installare lo script, che mette il codice in
-`/opt/first-contact` e crea un wrapper con `PYTHONPATH`:
+If you do not use the packages, the install script places the code in
+`/opt/first-contact` and creates a wrapper with `PYTHONPATH`:
 
 ```bash
 cd first-contact
-./scripts/install.sh                          # mostra il piano, non tocca nulla
-./scripts/install.sh --apply                  # utente, directory, servizio
-./scripts/install.sh --apply --with-postfix   # + main.cf con backup
+./scripts/install.sh                          # show the plan, change nothing
+./scripts/install.sh --apply                  # user, directories, service
+./scripts/install.sh --apply --with-postfix   # + main.cf with backup
 ```
 
-Cosa fa `--apply`:
+What `--apply` does:
 
-| passo | effetto |
+| step | effect |
 |---|---|
-| 1 | `apt-get install python3-milter` se manca |
-| 2 | utente di sistema `firstcontact` |
-| 3 | `/var/lib/first-contact` (0700) e `/var/spool/postfix/first-contact` (2750 `firstcontact:postfix`) |
-| 4 | codice in `/opt/first-contact` |
-| 5 | `/etc/first-contact/config.ini` e `whitelist.txt` (non sovrascritti se esistono) |
-| 6 | comando `/usr/local/bin/first-contact` |
-| 7 | unit systemd + drop-in `PYTHONPATH` + tmpfiles + avvio |
-| 8 | (solo `--with-postfix`) aggiunta in coda a `smtpd_milters`, backup di `main.cf`, `postfix check`, reload |
+| 1 | `apt-get install python3-milter` if missing |
+| 2 | system user `firstcontact` |
+| 3 | `/var/lib/first-contact` (0700) and `/var/spool/postfix/first-contact` (2750 `firstcontact:postfix`) |
+| 4 | code in `/opt/first-contact` |
+| 5 | `/etc/first-contact/config.ini` and `whitelist.txt` (not overwritten if they exist) |
+| 6 | `/usr/local/bin/first-contact` command |
+| 7 | systemd unit + `PYTHONPATH` drop-in + tmpfiles + start |
+| 8 | (`--with-postfix` only) append to `smtpd_milters`, back up `main.cf`, `postfix check`, reload |
 
-Installazione manuale equivalente:
+Equivalent manual installation:
 
 ```bash
 apt-get install -y python3-milter
@@ -254,122 +261,121 @@ install -m 0644 packaging/systemd-prefix.conf \
 install -m 0644 etc/tmpfiles.d/first-contact.conf /etc/tmpfiles.d/
 systemd-tmpfiles --create /etc/tmpfiles.d/first-contact.conf
 systemctl daemon-reload && systemctl enable --now first-contact-milter
-# poi main.cf come in postfix/main.cf.snippet
+# then main.cf as in postfix/main.cf.snippet
 ```
 
-## 4. Configurazione
+## 4. Configuration
 
-`/etc/first-contact/config.ini`, formato INI (Python 3.7 non ha TOML).
-Dopo una modifica: `systemctl restart first-contact-milter`. La **whitelist**
-invece si ricarica da sola (vedi paragrafo 6).
+`/etc/first-contact/config.ini`, INI format (Python 3.7 has no TOML). After a
+change: `systemctl restart first-contact-milter`. The **whitelist** reloads
+by itself instead (see section 6).
 
-| chiave | default | significato |
+| key | default | meaning |
 |---|---|---|
-| `[milter] socket` | `unix:/var/spool/postfix/first-contact/milter.sock` | socket; alternativa `inet:11334@127.0.0.1` |
-| `[milter] header_name` | `X-First-Contact` | nome header aggiunto |
-| `[milter] header_position` | `top` | `top` (con fallback automatico se `insheader` non c'e') o `end` |
-| `[banner] mode` | `body` | `off` (solo header), `body` (banner), `subject` (prefisso oggetto), `both` |
-| `[banner] text` | avviso predefinito | testo del banner, con segnaposto `{sender}`, `{recipient}`, `{recipients}`, `{first_seen}`, `{client}` |
-| `[banner] text_resumed` | avviso "non ti scriveva da N giorni" | testo per il mittente assente; in piu' `{days}` e `{last_seen}` |
-| `[banner] subject_tag` | vuoto | prefisso per l'oggetto (usato con `subject`/`both`) |
-| `[banner] max_body_bytes` | `20971520` | oltre questa dimensione il corpo non viene riscritto (0 = nessun limite) |
-| `[banner] skip_signed` | `true` | non toccare `multipart/signed` e `multipart/encrypted` |
-| `[banner] html_box` | `true` | box HTML giallo/nero con bordo tratteggiato; `false` = solo testo |
-| `[whitelist] senders` | vuoto | indirizzi/domini esclusi, separati da virgola |
-| `[whitelist] networks` | vuoto | reti o IP del client esclusi, separati da virgola |
-| `[whitelist] file` | vuoto | file con una voce per riga, riletto quando cambia |
-| `[policy] key_source` | `envelope` | `envelope` = `MAIL FROM`, `from` = header `From:` |
-| `[policy] key_scope` | `address` | `address` = per indirizzo, `domain` = per dominio |
-| `[policy] process_authenticated` | `false` | valutare anche la posta inviata con SASL |
-| `[policy] process_local` | `false` | valutare anche la posta senza client SMTP (cron, pickup) e dalle reti fidate |
-| `[policy] trusted_networks` | `127.0.0.0/8, ::1` | reti considerate interne |
-| `[policy] skip_local_senders` | vuoto (nell'esempio: i domini locali) | domini di mittente ignorati |
-| `[policy] skip_null_sender` | `true` | ignora i rimbalzi (`MAIL FROM` vuoto) |
-| `[policy] max_recipients` | `50` | tetto destinatari per messaggio |
-| `[policy] dormant_days` | `90` | giorni di assenza oltre i quali scatta l'avviso "resumed" (0 = disattivata) |
-| `[policy] observe_only` | `false` | registra ma non aggiunge alcun avviso (rodaggio) |
-| `[store] path` | `/var/lib/first-contact/contacts.db` | database SQLite |
-| `[store] track_stats` | `true` | aggiorna `last_seen`/`messages` (con `dormant_days > 0` `last_seen` viene aggiornato comunque) |
-| `[store] retention_days` | `0` | pulizia automatica dei contatti vecchi (0 = mai) |
-| `[logging] level` | `INFO` | `DEBUG` per vedere anche i "gia' noti" |
-| `[logging] syslog` | `true` | scrive in `/var/log/mail.log` (facility `mail`) |
+| `[milter] socket` | `unix:/var/spool/postfix/first-contact/milter.sock` | socket; alternative `inet:11334@127.0.0.1` |
+| `[milter] header_name` | `X-First-Contact` | name of the added header |
+| `[milter] header_position` | `top` | `top` (automatic fallback if `insheader` is unavailable) or `end` |
+| `[banner] mode` | `body` | `off` (header only), `body` (banner), `subject` (subject prefix), `both` |
+| `[banner] text` | default warning | banner text, with `{sender}`, `{recipient}`, `{recipients}`, `{first_seen}`, `{client}` placeholders |
+| `[banner] text_resumed` | "not heard from for N days" warning | text for the absent sender; additionally `{days}` and `{last_seen}` |
+| `[banner] subject_tag` | empty | subject prefix (used with `subject`/`both`) |
+| `[banner] max_body_bytes` | `20971520` | above this size the body is not rewritten (0 = no limit) |
+| `[banner] skip_signed` | `true` | do not touch `multipart/signed` and `multipart/encrypted` |
+| `[banner] html_box` | `true` | yellow/black HTML box with dashed border; `false` = text only |
+| `[whitelist] senders` | empty | excluded addresses/domains, comma-separated |
+| `[whitelist] networks` | empty | excluded client networks or IPs, comma-separated |
+| `[whitelist] file` | empty | file with one entry per line, re-read when it changes |
+| `[policy] key_source` | `envelope` | `envelope` = `MAIL FROM`, `from` = `From:` header |
+| `[policy] key_scope` | `address` | `address` = per address, `domain` = per domain |
+| `[policy] process_authenticated` | `false` | also evaluate mail sent with SASL |
+| `[policy] process_local` | `false` | also evaluate mail without an SMTP client (cron, pickup) and from trusted networks |
+| `[policy] trusted_networks` | `127.0.0.0/8, ::1` | networks considered internal |
+| `[policy] skip_local_senders` | empty (example: local domains) | sender domains to ignore |
+| `[policy] skip_null_sender` | `true` | ignore bounces (empty `MAIL FROM`) |
+| `[policy] max_recipients` | `50` | recipient cap per message |
+| `[policy] dormant_days` | `90` | absence in days after which the "resumed" warning triggers (0 = disabled) |
+| `[policy] observe_only` | `false` | record but add no warning (warm-up) |
+| `[store] path` | `/var/lib/first-contact/contacts.db` | SQLite database |
+| `[store] track_stats` | `true` | update `last_seen`/`messages` (with `dormant_days > 0`, `last_seen` is updated anyway) |
+| `[store] retention_days` | `0` | automatic cleanup of old contacts (0 = never) |
+| `[logging] level` | `INFO` | `DEBUG` also shows "already known" |
+| `[logging] syslog` | `true` | write to `/var/log/mail.log` (facility `mail`) |
 
-### Rodaggio consigliato: `observe_only = true` per una settimana
+### Recommended warm-up: `observe_only = true` for a week
 
-Il database parte vuoto: al primo giorno **ogni** mittente esterno e' "nuovo",
-quindi quasi tutta la posta in arrivo avrebbe l'avviso. Il milter ha una
-modalita' di osservazione che registra i contatti senza aggiungere nulla:
+The database starts empty: on the first day **every** external sender is
+"new", so almost all incoming mail would carry the warning. The milter has an
+observation mode that records contacts without adding anything:
 
 ```ini
 [policy]
 observe_only = true
 ```
 
-Dopo qualche giorno di posta normale si passa a `false` e si riavvia: i
-corrispondenti abituali sono gia' noti e l'allerta scatta solo per i mittenti
-davvero nuovi.
+After a few days of normal mail, set it to `false` and restart: regular
+correspondents are already known and the warning fires only for genuinely new
+senders.
 
-## 5. L'avviso visibile (banner)
+## 5. The visible warning (banner)
 
-Con `[banner] mode = body` (predefinito) l'utente vede in cima al testo del
-messaggio un **box con sfondo giallo, testo nero e bordo tratteggiato nero**:
+With `[banner] mode = body` (default) the user sees a **yellow box with black
+text and a black dashed border** at the top of the message text:
 
 ```text
 +--------------------------------------------------------------+
-|  ATTENZIONE: e' il primo messaggio che ricevi da ...          |   sfondo giallo
-|  Non e' detto che sia pericoloso, ma presta attenzione ad     |   testo nero
-|  allegati e link: ...                                         |   bordo tratteggiato
+|  ATTENZIONE: e' il primo messaggio che ricevi da ...          |  yellow background
+|  Non e' detto che sia pericoloso, ma presta attenzione ad     |  black text
+|  allegati e link: ...                                         |  dashed border
 +--------------------------------------------------------------+
-[ contenuto originale, con allegati, invariato ]
+[ original content, attachments unchanged ]
 ```
 
-L'avviso entra nelle parti testuali che il messaggio ha gia': la parte
-`text/html` riceve il box con stile inline (l'unico modo per avere uno stile
-nei client di posta), la parte `text/plain` riceve la stessa allerta con una
-cornice tratteggiata in ASCII. In un `multipart/alternative` vengono
-aggiornate entrambe, quindi il client mostra sempre la versione che usa. La
-struttura dell'email non cambia: nessun nuovo `multipart`, nessun allegato.
-Per disattivare l'HTML e usare soltanto il testo: `html_box = false`.
+The warning goes into the text parts the message already has: the `text/html`
+part gets the inline-styled box (the only way to style mail clients), the
+`text/plain` part gets the same warning in an ASCII dashed frame. In a
+`multipart/alternative` both are updated, so the client always shows the
+version it uses. The email structure does not change: no new `multipart`, no
+attachment. To disable HTML and use text only: `html_box = false`.
 
-Il testo e' personalizzabile in `[banner] text`; i segnaposto vengono
-sostituiti e le righe impaginate a 78 colonne. Un esempio piu' esplicito:
+The text is customisable in `[banner] text`; placeholders are replaced and
+lines wrapped at 78 columns. A more explicit example:
 
 ```ini
 [banner]
 mode = both
-subject_tag = [PRIMO CONTATTO]
-text = Attenzione: primo messaggio da {sender} per {recipient} ({first_seen}).
-       Controlla con cura allegati e link prima di aprirli.
+subject_tag = [FIRST CONTACT]
+text = Warning: first message from {sender} to {recipient} ({first_seen}).
+       Check attachments and links carefully before opening them.
 ```
 
-Scelte di sicurezza:
+Safety choices:
 
-* `multipart/signed` e `multipart/encrypted` **non** vengono riscritti
-  (`skip_signed = true`): per questi messaggi resta il solo header, senza
-  banner **e senza prefisso nell'oggetto**, perche' entrambi invaliderebbero la
-  firma o la cifratura in modo evidente.
-* corpi oltre `max_body_bytes` e messaggi di cui non e' stato ricevuto il
-  corpo: si ripiega sul solo header, senza mai sostituire il corpo con vuoto.
-* qualsiasi errore durante la riscrittura viene assorbito e registrato.
+* `multipart/signed` and `multipart/encrypted` are **not** rewritten
+  (`skip_signed = true`): these messages get the header only, with no banner
+  **and no subject prefix**, because either would visibly invalidate the
+  signature or encryption.
+* bodies above `max_body_bytes` and messages whose body was not received:
+  fall back to the header only, never replacing the body with an empty one.
+* any error during rewriting is logged and swallowed.
 
-### 5.1 Mittente assente da tempo (`dormant_days`)
+### 5.1 Sender absent for a long time (`dormant_days`)
 
-Oltre al primo contatto, il milter segnala il caso opposto: un mittente che
-**conosciamo** ma che non si faceva vivo da almeno `[policy] dormant_days`
-giorni (default **90**, `0` disattiva la regola). E' utile per accorgersi di
-messaggi che imitano un corrispondente abituale dopo mesi di silenzio.
+Besides first contact, the milter flags the opposite case: a sender we
+**know** who has not written for at least `[policy] dormant_days` days
+(default **90**, `0` disables the rule). This helps spot messages that imitate
+a regular correspondent after months of silence.
 
-Il testo predefinito e' volutamente breve e diretto:
+The default text is deliberately short and direct:
 
 ```text
 ATTENZIONE: mario.rossi@example.com non ti scriveva da 100 giorni.
 Verifica l'identita' del mittente prima di aprire allegati o link.
 ```
 
-Il box resta lo stesso (giallo, bordo tratteggiato); cambia solo il testo.
-Personalizzabile in `[banner] text_resumed`, con i segnaposto `{sender}`,
-`{recipient}`, `{recipients}`, `{first_seen}`, `{client}` piu' `{days}`
-(giorni di assenza) e `{last_seen}` (data dell'ultimo messaggio).
+The box stays the same (yellow, dashed border); only the text changes.
+Customisable in `[banner] text_resumed`, with the placeholders `{sender}`,
+`{recipient}`, `{recipients}`, `{first_seen}`, `{client}` plus `{days}` (days
+of absence) and `{last_seen}` (date of the last message).
 
 ```ini
 [policy]
@@ -380,63 +386,61 @@ text_resumed = ATTENZIONE: {sender} non ti scriveva da {days} giorni.
                Verifica l'identita' del mittente prima di aprire allegati o link.
 ```
 
-Come funziona:
+How it works:
 
-* la soglia e' valutata in modo **atomico** insieme alla registrazione del
-  messaggio (`UPDATE ... WHERE last_seen <= soglia`): due messaggi identici
-  arrivati insieme producono **un solo** avviso "resumed";
-* quando `dormant_days > 0` il milter aggiorna `last_seen` **sempre**, anche
-  con `track_stats = false`, altrimenti un corrispondente abituale
-  sembrerebbe assente dopo la soglia;
-* l'header distingue i due casi: `kind=first-message` oppure `kind=resumed`,
-  con in piu' `last-seen=` e `days=`;
-* con `observe_only = true` il caso viene registrato nei log ma non produce
-  ne' header ne' banner;
-* la whitelist ha la precedenza anche qui: un mittente escluso non genera
-  nessun avviso.
+* the threshold is evaluated **atomically** with message recording (`UPDATE
+  ... WHERE last_seen <= threshold`): two identical messages arriving together
+  produce **one** "resumed" warning;
+* when `dormant_days > 0` the milter updates `last_seen` **always**, even with
+  `track_stats = false`, otherwise a regular correspondent would look absent
+  after the threshold;
+* the header distinguishes the two cases: `kind=first-message` or
+  `kind=resumed`, plus `last-seen=` and `days=`;
+* with `observe_only = true` the case is logged but produces neither header
+  nor banner;
+* the whitelist takes precedence here too: an excluded sender raises no
+  warning.
 
-Se si usa `retention_days`, tenerlo maggiore di `dormant_days`: altrimenti il
-pruning cancella lo storico prima che la regola possa scattare (`doctor`
-segnala il caso).
+If you use `retention_days`, keep it greater than `dormant_days`: otherwise
+pruning deletes the history before the rule can fire (`doctor` reports this).
 
-Scelte di sicurezza:
+### DKIM: a trade-off to know
 
-### DKIM: compromesso da conoscere
+Rewriting the body **invalidates the sender's DKIM signatures** for that
+message: any change alters the body hash, and there is no way to add a banner
+while keeping them valid. Practical consequences:
 
-Riscrivere il corpo **invalida le firme DKIM del mittente** per quel
-messaggio: qualunque modifica cambia l'hash del corpo, non c'e' modo di
-aggiungere un banner mantenendole valide. Conseguenze pratiche:
-
-* i controlli DKIM fatti **dopo** il nostro milter (es. un filtro antispam
-  successivo) vedranno la firma del mittente come non valida;
-* se anche `opendkim` sul server **firma** la posta (`Mode s` o `sv` in
-  `/etc/opendkim.conf`), va messo **dopo** first-contact in `smtpd_milters`,
-  cosi' la firma locale copre anche il banner:
+* DKIM checks performed **after** our milter (e.g. a later anti-spam filter)
+  will see the sender's signature as invalid;
+* if `opendkim` on the server also **signs** mail (`Mode s` or `sv` in
+  `/etc/opendkim.conf`), it must be placed **after** first-contact in
+  `smtpd_milters`, so the local signature covers the banner too:
   ```
   smtpd_milters = inet:127.0.0.1:11332 unix:/first-contact/milter.sock unix:/opendkim/opendkim.sock
   ```
-  Con `Mode v` (sola verifica, default di OpenDKIM) l'ordine non ha effetti.
-* con `[banner] mode = off` il corpo non viene toccato e le firme restano
-  valide: e' la scelta da fare se il DKIM in transito e' piu' importante
-  dell'avviso visibile.
+  With `Mode v` (verification only, OpenDKIM's default) the order has no
+  effect.
+* with `[banner] mode = off` the body is untouched and signatures stay valid:
+  this is the right choice if in-transit DKIM matters more than the visible
+  warning.
 
-## 6. Whitelist: mittenti e reti esclusi
+## 6. Whitelist: excluded senders and networks
 
-Per alcune origini l'avviso e' inutile (o fastidioso). La whitelist le
-esclude: per loro non viene aggiunto **ne' header ne' banner** e non viene
-scritto nulla nel database.
+For some origins the warning is useless (or annoying). The whitelist excludes
+them: they get **neither header nor banner** and nothing is written to the
+database.
 
-Formati accettati, sia in `senders`/`networks` sia nel file:
+Accepted formats, both in `senders`/`networks` and in the file:
 
-| voce | significato |
+| entry | meaning |
 |---|---|
-| `mario.rossi@example.com` | indirizzo esatto |
-| `@example.com` | dominio e tutti i sottodomini |
-| `*.example.com` | come sopra |
-| `example.com` | come sopra |
-| `203.0.113.9` | singolo IP del client SMTP |
-| `10.0.0.0/8` | rete CIDR del client SMTP |
-| `# commento` | solo nel file |
+| `mario.rossi@example.com` | exact address |
+| `@example.com` | domain and all subdomains |
+| `*.example.com` | as above |
+| `example.com` | as above |
+| `203.0.113.9` | single SMTP client IP |
+| `10.0.0.0/8` | SMTP client CIDR network |
+| `# comment` | file only |
 
 ```ini
 [whitelist]
@@ -445,192 +449,191 @@ networks = 10.0.0.0/8, 192.168.0.0/24
 file = /etc/first-contact/whitelist.txt
 ```
 
-Nel file una voce per riga:
+One entry per line in the file:
 
 ```
-# fornitori e domini di casa
+# suppliers and home domains
 @example.org
 mario.rossi@example.com
 10.0.0.0/8
 ```
 
-Differenze volute tra le due fonti:
+Intentional differences between the two sources:
 
-* le voci nella **configurazione** sono validate all'avvio: un errore blocca
-  il servizio (meglio accorgersene subito);
-* le voci nel **file** sono permissive: le righe non valide vengono ignorate
-  e segnalate nei log, senza fermare nulla;
-* il file viene **riletto automaticamente quando cambia** (mtime/dimensione):
-  aggiungere o togliere voci non richiede riavvii.
+* entries in the **configuration** are validated at startup: an error stops
+  the service (better to notice immediately);
+* entries in the **file** are permissive: invalid lines are ignored and
+  logged, without stopping anything;
+* the file is **re-read automatically when it changes** (mtime/size): adding
+  or removing entries needs no restart.
 
-Nei log il motivo di esclusione e' esplicito: `whitelist-address`,
-`whitelist-domain`, `whitelist-cidr`. La whitelist ha precedenza su tutto: un
-mittente in whitelist non produce avvisi nemmeno se autenticato o interno.
+Logs state the exclusion reason explicitly: `whitelist-address`,
+`whitelist-domain`, `whitelist-cidr`. The whitelist wins over everything: a
+whitelisted sender raises no warning even if authenticated or internal.
 
-## 7. Verifica
+## 7. Verification
 
 ```bash
-first-contact doctor          # config, DB, socket, main.cf, ordine milter, banner, whitelist
+first-contact doctor          # config, DB, socket, main.cf, milter order, banner, whitelist
 systemctl status first-contact-milter --no-pager
 journalctl -u first-contact-milter -n 30 --no-pager
 ```
 
-I comandi diagnostici vanno eseguiti come **root** (o come utente
-`firstcontact`): con l'installazione in `/opt` la configurazione e' leggibile
-solo da loro, con i pacchetti e' leggibile da tutti ma il database e la
-whitelist restano protetti dalle directory.
+Run diagnostic commands as **root** (or as the `firstcontact` user): with the
+`/opt` installation the configuration is readable only by them; with the
+packages it is world-readable, but the database and whitelist remain
+protected by their directories.
 
-Test di decisione senza inviare posta:
+Decision test without sending mail:
 
 ```bash
-# stato di una coppia nel database reale (sola lettura)
+# state of a pair in the real database (read-only)
 first-contact check --sender mario.rossi@example.com \
     --recipient anna@example.it --client 203.0.113.9
-# -> NEW ... oppure KNOWN ... con assenza=Ngg e la soglia dormant_days;
-#    se in whitelist: ESCLUSO ...
+# -> NEW ... or KNOWN ... with absence=Nd and the dormant_days threshold;
+#    if whitelisted: EXCLUDED ...
 
-# simulazione su un .eml: mostra header, banner e inizio del messaggio riscritto
-# (database temporaneo, non tocca quello reale)
+# simulation on an .eml: shows header, banner and the start of the rewritten message
+# (temporary database, the real one is untouched)
 first-contact simulate --eml examples/sample.eml \
     --recipient anna@example.it --client 203.0.113.9
 
-# prova la regola "mittente assente": finge un contatto avvenuto 100 giorni fa
+# test the "absent sender" rule: pretends a contact happened 100 days ago
 first-contact simulate --eml examples/sample.eml \
     --recipient anna@example.it --client 203.0.113.9 --known-days 100
-# -> tipo allerta: mittente tornato dopo 100 giorni
+# -> alert type: sender returned after 100 days
 ```
 
-Invio reale di prova:
+Real test delivery:
 
 ```bash
-printf 'Subject: prova first-contact\n\nciao\n' | \
+printf 'Subject: first-contact test\n\nhello\n' | \
   swaks --to anna@example.it --from mario.rossi@example.com \
         --server 127.0.0.1 --header 'From: Mario Rossi <mario.rossi@example.com>'
 ```
 
-Il primo messaggio deve avere banner e header, il secondo no. In
+The first message should have the banner and header, the second should not. In
 `/var/log/mail.log`:
 
 ```
 first-contact[...]: first-contact sender=mario.rossi@example.com recipient=anna@example.it client=203.0.113.9
 ```
 
-### Regola lato client (facoltativa)
+### Client-side rule (optional)
 
-L'header resta utile per filtrare, anche con il banner attivo:
+The header remains useful for filtering, even with the banner enabled:
 
-* **Outlook**: Regole -> "con parole specifiche nell'intestazione del
-  messaggio" -> `X-First-Contact` -> sposta in "Primo contatto".
-* **Thunderbird**: Filtri -> "Personalizza" -> `X-First-Contact` ->
-  "contiene" -> sposta/cambia colore.
-* **Dovecot/Sieve** (se un giorno si aggiunge Sieve):
+* **Outlook**: Rules -> "with specific words in the message header" ->
+  `X-First-Contact` -> move to "First contact".
+* **Thunderbird**: Filters -> "Customize" -> `X-First-Contact` -> "contains"
+  -> move/colour.
+* **Dovecot/Sieve** (if Sieve is added later):
   ```
   if header :contains "X-First-Contact" "recipient=anna@example.it" {
-      fileinto "Primo contatto";
+      fileinto "First contact";
       addflag "\\Flagged";
   }
   ```
 * **Procmail**: `* ^X-First-Contact: .*recipient=anna@example\.it`
 
-L'header contiene `kind=first-message` oppure `kind=resumed`: per distinguere i
-due casi basta cercare `resumed` nel valore (e `days=` per i giorni di
-assenza).
+The header contains `kind=first-message` or `kind=resumed`: to tell the two
+cases apart, look for `resumed` in the value (and `days=` for the days of
+absence).
 
-## 8. Ambito: cosa viene e cosa non viene valutato
+## 8. Scope: what is and is not evaluated
 
-* Solo posta che arriva via SMTP da un client esterno.
-* Saltati: sessioni autenticate SASL (`submission`, utenti interni), client in
-  `trusted_networks` (loopback incluso), posta locale senza client (`cron`,
-  `pickup`), mittente nullo (rimbalzi), mittenti nei domini
-  `skip_local_senders`, e naturalmente mittenti/reti in whitelist.
-* Se serve valutare anche la posta interna: `process_authenticated = true`,
-  `process_local = true` e `trusted_networks =` (vuoto).
+* Only mail arriving over SMTP from an external client.
+* Skipped: SASL-authenticated sessions (`submission`, internal users), clients
+  in `trusted_networks` (including loopback), local mail without a client
+  (`cron`, `pickup`), null sender (bounces), senders in `skip_local_senders`
+  domains, and of course whitelisted senders/networks.
+* To evaluate internal mail as well: `process_authenticated = true`,
+  `process_local = true` and `trusted_networks =` (empty).
 
-## 9. Limiti noti
+## 9. Known limitations
 
-1. **Messaggi a piu' destinatari**: il messaggio e' uno solo in coda e viene
-   consegnato uguale a tutti; il banner e' quindi lo stesso per tutti e ogni
-   casella vede gli header di *tutti* i destinatari nuovi. La regola lato
-   client deve cercare il proprio indirizzo (`recipient=...`). Per una
-   semantica strettamente per-casella servirebbe agire in fase di consegna
-   (LDA/LMTP per utente), non in milter.
-2. **Alias e gruppi**: la chiave e' il destinatario *envelope*; se un alias
-   espande verso piu' caselle, l'allerta e' calcolata sull'alias, non sulle
-   caselle finali.
-3. **Envelope falsificabile**: `MAIL FROM` e' dichiarato dal mittente. Con
-   `key_source = envelope` e' difficile da alterare nel contenuto, ma un
-   mittente puo' comunque usare indirizzi sempre diversi per non risultare
-   "nuovo". Il database non e' un sistema antispam, e' un promemoria.
-4. **DKIM**: con il banner attivo le firme del mittente risultano non valide
-   (paragrafo 5). Con `mode = off` il problema non esiste.
-5. **Messaggi firmati/cifrati**: non vengono riscritti (ne' corpo ne'
-   oggetto); ricevono solo l'header.
-6. **Database vuoto al primo avvio**: usare `observe_only` per il rodaggio
-   (paragrafo 4).
-7. **`Retention`**: `retention_days` non e' una pianificazione automatica; va
-   invocato `first-contact prune` da cron/systemd timer se lo si desidera.
-8. **Client IMAP**: il banner e' inserito nel testo del messaggio e viene
-   mostrato come corpo normale; l'header `X-First-Contact` invece non appare
-   nell'anteprima ma e' disponibile nelle regole.
+1. **Multi-recipient messages**: there is one message in the queue and it is
+   delivered identically to everyone; the banner is therefore the same for
+   all, and each mailbox sees the headers of *all* new recipients. The client
+   rule must look for its own address (`recipient=...`). Strictly per-mailbox
+   semantics would require acting at delivery time (per-user LDA/LMTP), not in
+   a milter.
+2. **Aliases and groups**: the key is the *envelope* recipient; if an alias
+   expands to several mailboxes, the warning is computed on the alias, not on
+   the final mailboxes.
+3. **Forgeable envelope**: `MAIL FROM` is declared by the sender. With
+   `key_source = envelope` it is hard to alter in the content, but a sender
+   can still use different addresses each time to avoid looking "new". The
+   database is not an anti-spam system, it is a reminder.
+4. **DKIM**: with the banner enabled the sender's signatures are invalid
+   (section 5). With `mode = off` the problem does not exist.
+5. **Signed/encrypted messages**: not rewritten (neither body nor subject);
+   they get the header only.
+6. **Empty database on first start**: use `observe_only` for the warm-up
+   (section 4).
+7. **Retention**: `retention_days` is not a scheduler; run
+   `first-contact prune` from cron/systemd timer if desired.
+8. **IMAP clients**: the banner is inserted into the message text and shown as
+   a normal body; the `X-First-Contact` header does not appear in the preview
+   but is available to rules.
 
-## 10. Manutenzione
+## 10. Maintenance
 
 ```bash
-first-contact stats                 # coppie, mittenti, destinatari, messaggi
-first-contact list --limit 20       # ultimi contatti, con date
+first-contact stats                 # pairs, senders, recipients, messages
+first-contact list --limit 20       # latest contacts, with dates
 first-contact prune --days 730 --dry-run
 first-contact prune --days 730
 ```
 
-Backup (SQLite in modalita' WAL, a caldo):
+Backup (SQLite in WAL mode, online):
 
 ```bash
 sqlite3 /var/lib/first-contact/contacts.db ".backup /root/contacts-$(date +%F).db"
 ```
 
-Per svuotare tutto e ripartire: fermare il servizio, rimuovere
-`contacts.db`, `contacts.db-wal`, `contacts.db-shm`, riavviare.
+To wipe everything and start over: stop the service, remove `contacts.db`,
+`contacts.db-wal`, `contacts.db-shm`, restart.
 
-## 11. Disinstallazione
+## 11. Uninstallation
 
-Con i pacchetti:
+With the packages:
 
 ```bash
 sudo dpkg -r first-contact      # Debian/Ubuntu
 sudo dnf remove first-contact   # Enterprise Linux
 ```
 
-`/etc/first-contact` e `/var/lib/first-contact` restano (configurazione e
-database); rimuoverli a mano se non servono piu'. Il token va tolto da
-`smtpd_milters` prima o dopo, con reload di Postfix.
+`/etc/first-contact` and `/var/lib/first-contact` remain (configuration and
+database); remove them by hand if no longer needed. Remove the token from
+`smtpd_milters` before or after, with a Postfix reload.
 
-Con l'installazione da sorgente:
+With the source installation:
 
 ```bash
-./scripts/uninstall.sh --apply            # servizio, codice, config; DB conservato
-./scripts/uninstall.sh --apply --purge    # elimina anche il database
+./scripts/uninstall.sh --apply            # service, code, config; DB kept
+./scripts/uninstall.sh --apply --purge    # also removes the database
 ```
 
-Il token viene tolto da `smtpd_milters` con backup di `main.cf` e reload di
-Postfix.
+The token is removed from `smtpd_milters` with a `main.cf` backup and a
+Postfix reload.
 
-## 12. Test
+## 12. Tests
 
 ```bash
 ./scripts/run-tests.sh
 ```
 
-Coprono: normalizzazione indirizzi, injection negli header, regole di ambito,
-prima volta / volta successiva / mittente tornato dopo un'assenza, soglia
-`dormant_days` (inclusa e disattivata), concorrenza sull'INSERT e sulla
-decisione "resumed", pruning, parsing e ricarica della whitelist, testo e
-riscrittura MIME del banner (box HTML, fallback testo, base64 e multipart),
-segnaposto `{days}`/`{last_seen}`, simulazione completa di una transazione
-SMTP con un finto modulo
-`Milter`, prefisso oggetto, messaggi firmati saltati, fallback su corpo troppo
-grande, fallback quando `insheader` non e' disponibile, e il fatto che un
-guasto del decider non interrompa mai la posta.
+They cover: address normalisation, header injection, scope rules, first
+time / later time / sender returning after an absence, the `dormant_days`
+threshold (inclusive and disabled), concurrency on the INSERT and on the
+"resumed" decision, pruning, whitelist parsing and reload, banner text and
+body MIME rewriting (HTML box, text fallback, base64 and multipart),
+`{days}`/`{last_seen}` placeholders, a full SMTP transaction simulation with a
+fake `Milter` module, subject prefix, skipped signed messages, fallback on an
+oversized body, fallback when `insheader` is unavailable, and the fact that a
+decider failure never interrupts mail.
 
-## 13. Licenza
+## 13. License
 
-GPL-2.0-or-later. Il testo completo e' in `LICENSE`.
+GPL-2.0-or-later. The full text is in `LICENSE`.
