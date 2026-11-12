@@ -1,0 +1,15 @@
+#!/bin/sh
+# Crea l'utente di servizio prima di installare i file.
+set -e
+
+if ! getent group firstcontact >/dev/null; then
+    addgroup --system firstcontact
+fi
+
+if ! getent passwd firstcontact >/dev/null; then
+    adduser --system --ingroup firstcontact --home /var/lib/first-contact \
+        --no-create-home --shell /usr/sbin/nologin \
+        --gecos "first-contact milter" firstcontact
+fi
+
+exit 0

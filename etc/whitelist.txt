@@ -1,0 +1,22 @@
+# first-contact - whitelist dei mittenti e delle reti
+#
+# Una voce per riga. Per queste origini non viene aggiunto alcun avviso
+# (ne' header, ne' banner) e non viene scritto nulla nel database.
+#
+# Formati:
+#   mario.rossi@example.com     indirizzo esatto
+#   @example.com                dominio e sottodomini
+#   *.example.com               come sopra
+#   example.com                 come sopra
+#   203.0.113.9                 singolo IP del client SMTP
+#   10.0.0.0/8                  rete CIDR del client SMTP
+#
+# Il file viene riletto automaticamente quando cambia: aggiungere o togliere
+# righe non richiede di riavviare il servizio. Le righe non valide vengono
+# ignorate e segnalate nei log.
+#
+# Esempi (togliere il cancelletto per attivarli):
+#
+# @example.com
+# mario.rossi@example.com
+# 192.168.0.0/24

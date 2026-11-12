@@ -1,0 +1,14 @@
+#!/bin/sh
+# Le directory di stato e del socket devono esistere prima dell'avvio del
+# servizio; systemd-tmpfiles le ricrea anche a ogni boot.
+set -e
+
+if [ -f /usr/lib/tmpfiles.d/first-contact.conf ]; then
+    if command -v systemd-tmpfiles >/dev/null 2>&1; then
+        systemd-tmpfiles --create /usr/lib/tmpfiles.d/first-contact.conf || true
+    fi
+fi
+
+#DEBHELPER#
+
+exit 0

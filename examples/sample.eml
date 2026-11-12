@@ -1,0 +1,16 @@
+Return-Path: <mario.rossi@example.com>
+Received: from mail.example.com (mail.example.com [203.0.113.9])
+	by mail.example.it (Postfix) with ESMTPS id 4A1B2C3D4E
+	for <anna@example.it>; Wed, 11 Nov 2026 18:12:03 +0100 (CET)
+From: Mario Rossi <mario.rossi@example.com>
+To: Anna Bianchi <anna@example.it>
+Subject: Preventivo manutenzione
+Message-ID: <abc123@example.com>
+Date: Wed, 11 Nov 2026 18:12:01 +0100
+MIME-Version: 1.0
+Content-Type: text/plain; charset=utf-8
+
+Buongiorno,
+come concordato invio il preventivo per la manutenzione annuale.
+Cordiali saluti,
+Mario Rossi

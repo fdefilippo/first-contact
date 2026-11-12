@@ -1,0 +1,34 @@
+#!/usr/bin/make -f
+
+%:
+	dh $@ --with python3
+
+# Il progetto non usa setuptools: i file sono installati qui.
+override_dh_auto_configure:
+override_dh_auto_build:
+override_dh_auto_clean:
+
+override_dh_auto_install:
+	install -d debian/first-contact/usr/lib/python3/dist-packages
+	cp -a src/firstcontact debian/first-contact/usr/lib/python3/dist-packages/
+	find debian/first-contact/usr/lib/python3/dist-packages -name __pycache__ -prune -exec rm -rf {} +
+	install -d debian/first-contact/usr/bin
+	install -m 0755 packaging/first-contact debian/first-contact/usr/bin/first-contact
+	install -d debian/first-contact/etc/first-contact
+	install -m 0644 etc/first-contact.ini debian/first-contact/etc/first-contact/config.ini
+	install -m 0644 etc/whitelist.txt debian/first-contact/etc/first-contact/whitelist.txt
+	install -d debian/first-contact/usr/lib/tmpfiles.d
+	install -m 0644 etc/tmpfiles.d/first-contact.conf debian/first-contact/usr/lib/tmpfiles.d/first-contact.conf
+	install -d debian/first-contact/usr/share/doc/first-contact/examples
+	install -m 0644 examples/sample.eml debian/first-contact/usr/share/doc/first-contact/examples/sample.eml
+
+override_dh_auto_test:
+	./scripts/run-tests.sh
+
+# La unit si chiama first-contact-milter.service, non first-contact.service.
+override_dh_installsystemd:
+	dh_installsystemd --name=first-contact-milter
+
+# Debian 10 (buster) non legge i .deb compressi con zstd.
+override_dh_builddeb:
+	dh_builddeb -- -Zxz

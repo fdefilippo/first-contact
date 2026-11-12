@@ -1,0 +1,43 @@
+# first-contact - modifica a /etc/postfix/main.cf
+#
+# Contesto rilevato sul server (Postfix 3.4.23, smtpd in chroot):
+#   smtpd_milters        = inet:127.0.0.1:11332 unix:/opendkim/opendkim.sock
+#   non_smtpd_milters    = $smtpd_milters
+#   milter_default_action = accept
+#   milter_protocol      = 6
+#
+# Il nostro milter va AGGIUNTO IN CODA: cosi' opera dopo rspamd, quindi i
+# messaggi che rspamd rifiuta non vengono registrati come "visti" (nessuna
+# allerta sprecata).
+#
+# Ordine e DKIM:
+#  - con l'avviso visibile attivo ([banner] mode = body/both) il corpo viene
+#    riscritto: le firme DKIM del mittente non saranno piu' valide per quel
+#    messaggio (e' inevitabile: qualunque modifica del corpo cambia l'hash).
+#  - se anche opendkim FIRMA la posta (Mode s oppure sv in /etc/opendkim.conf),
+#    mettere first-contact PRIMA di opendkim, cosi' la firma locale copre
+#    anche il banner:
+#        smtpd_milters = inet:127.0.0.1:11332 unix:/first-contact/milter.sock unix:/opendkim/opendkim.sock
+#    Con opendkim in sola verifica (Mode v, default) l'ordine non ha effetti.
+#
+# Attenzione al chroot: smtpd gira con chroot=y (master.cf), quindi il
+# percorso visto da Postfix e' /first-contact/milter.sock mentre sul
+# filesystem e' /var/spool/postfix/first-contact/milter.sock.
+
+smtpd_milters = inet:127.0.0.1:11332 unix:/opendkim/opendkim.sock unix:/first-contact/milter.sock
+
+# non_smtpd_milters resta com'e' ($smtpd_milters). La posta locale (pickup,
+# cron) non ha un client SMTP e viene ignorata dal milter: nessuna allerta
+# per i messaggi generati sul server.
+#
+# Applicazione:
+#   cp /etc/postfix/main.cf /etc/postfix/main.cf.bak-$(date +%F)
+#   postconf -e 'smtpd_milters = inet:127.0.0.1:11332 unix:/opendkim/opendkim.sock unix:/first-contact/milter.sock'
+#   postfix check
+#   systemctl reload postfix
+#
+# Verifica:
+#   postconf -h smtpd_milters
+#   first-contact doctor
+#   journalctl -u first-contact-milter -n 20 --no-pager
+#   tail -f /var/log/mail.log | grep first-contact

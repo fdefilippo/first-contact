@@ -1,0 +1,22 @@
+# build e pacchetti
+build/
+dist/
+*.deb
+*.rpm
+*.buildinfo
+*.changes
+*.dsc
+*.tar.gz
+
+# Python
+__pycache__/
+*.py[cod]
+
+# debhelper
+debian/.debhelper/
+debian/debhelper-build-stamp
+debian/files
+debian/first-contact/
+debian/*.substvars
+debian/*.debhelper
+debian/*.debhelper.log

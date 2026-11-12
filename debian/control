@@ -1,0 +1,21 @@
+Source: first-contact
+Section: mail
+Priority: optional
+Maintainer: Francesco De Filippo <francesco@defilippo.org>
+Build-Depends: debhelper-compat (= 12), dh-python, python3:any
+Standards-Version: 4.5.0
+Rules-Requires-Root: no
+Homepage: https://github.com/fdefilippo/first-contact
+
+Package: first-contact
+Architecture: all
+Depends: ${misc:Depends}, ${python3:Depends}, python3-milter, postfix, adduser
+Description: milter Postfix che segnala il primo messaggio da un mittente
+ Aggiunge un header X-First-Contact e, se previsto, un avviso visibile
+ (banner nel corpo o prefisso nell'oggetto) quando un destinatario riceve
+ per la prima volta da un mittente, oppure quando un mittente noto
+ ricompare dopo un'assenza prolungata.
+ .
+ Il pacchetto installa il comando first-contact, la configurazione in
+ /etc/first-contact e l'unita' systemd first-contact-milter. Non modifica
+ la configurazione di Postfix: il milter va aggiunto a smtpd_milters.

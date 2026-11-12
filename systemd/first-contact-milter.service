@@ -1,0 +1,38 @@
+# first-contact-milter.service
+#
+# Unit installata dai pacchetti deb/rpm in /lib/systemd/system (o
+# /usr/lib/systemd/system): il codice sta nei percorsi di sistema.
+# Con scripts/install.sh (layout in /opt) viene aggiunto un drop-in con
+# PYTHONPATH, vedi packaging/systemd-prefix.conf.
+
+[Unit]
+Description=first-contact milter - avviso sul primo messaggio da un mittente
+Documentation=file:/usr/share/doc/first-contact/README.md
+After=network.target
+Before=postfix.service
+
+[Service]
+Type=simple
+User=firstcontact
+Group=firstcontact
+# il socket viene creato in una directory di gruppo postfix (setgid)
+SupplementaryGroups=postfix
+UMask=0007
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 -m firstcontact serve --config /etc/first-contact/config.ini
+Restart=on-failure
+RestartSec=3
+
+# indurimento (systemd 239+, quindi anche EL8)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/var/lib/first-contact /var/spool/postfix/first-contact
+
+[Install]
+WantedBy=multi-user.target

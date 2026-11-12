@@ -1,0 +1,9 @@
+#!/bin/sh
+# Comando first-contact installato dal pacchetto.
+#
+# Il pacchetto Python sta nei percorsi di sistema (dist-packages su Debian,
+# site-packages su Enterprise Linux), quindi basta invocare il modulo.
+# Per l'installazione da sorgente in /opt si usa invece scripts/install.sh,
+# che crea un wrapper con PYTHONPATH.
+
+exec /usr/bin/python3 -m firstcontact "$@"

@@ -1,0 +1,8 @@
+first-contact (1.0.0) unstable; urgency=medium
+
+  * Rilascio iniziale.
+  * Milter Postfix per il primo contatto e per il mittente tornato dopo
+    un'assenza prolungata.
+  * Comandi: serve, check, list, stats, prune, doctor, simulate.
+
+ -- Francesco De Filippo <francesco@defilippo.org>  Thu, 12 Nov 2026 06:30:00 +0100
