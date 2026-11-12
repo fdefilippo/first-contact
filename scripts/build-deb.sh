@@ -5,7 +5,7 @@
 #   ./scripts/build-deb.sh
 #
 # Richiede i pacchetti di build: debhelper (>= 12), dh-python, python3.
-# Su Debian/Ubuntu: apt-get install -y debhelper dh-python python3
+# Su Debian/Ubuntu: apt-get install -y build-essential debhelper dh-python python3
 # Il .deb finisce in dist/.
 set -euo pipefail
 
