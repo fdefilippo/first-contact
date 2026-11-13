@@ -6,7 +6,7 @@
 %{!?_tmpfilesdir:%global _tmpfilesdir %{_prefix}/lib/tmpfiles.d}
 
 Name:           first-contact
-Version:        1.0.1
+Version:        1.0.2
 Release:        1%{?dist}
 Summary:        Milter Postfix che segnala il primo messaggio da un mittente
 
@@ -101,6 +101,10 @@ fi
 %{_mandir}/man8/first-contact.8*
 
 %changelog
+* Fri Nov 13 2026 Francesco Defilippo <francesco@defilippo.org> - 1.0.2-1
+- Corretta la ricodifica quoted-printable delle parti con fine riga CRLF:
+  i soft break diventavano "=\r\r\n" e il testo mostrava "=" spuri.
+
 * Thu Nov 12 2026 Francesco Defilippo <francesco@defilippo.org> - 1.0.1-1
 - Documentazione in inglese e pagina di manuale first-contact(8).
 

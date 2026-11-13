@@ -226,6 +226,57 @@ class BuildTest(unittest.TestCase):
         decoded = quopri.decodestring(rewrite.body)
         self.assertTrue(decoded.endswith(b"Ciao = \xe8"))
 
+    def _assert_crlf_only(self, data: bytes) -> None:
+        """Ogni fine riga e' CRLF: niente CR doppi, niente LF nudi."""
+        self.assertNotIn(b"\r\r", data)
+        self.assertEqual(data.count(b"\n"), data.count(b"\r\n"))
+
+    def test_quoted_printable_crlf_soft_breaks_stay_valid(self):
+        # Come arriva da Postfix via milter: righe CRLF e soft break "=\r\n".
+        html_part = (
+            b'<html><body><p>Versione web <a href="https://example.org/nl/link?'
+            + b"c=1bvtu&amp;d=ctd&amp;h=" + b"x" * 60
+            + b'">link</a></p><p>Inoltra</p></body></html>\n'
+        )
+        original = quopri.encodestring(html_part).replace(b"\n", b"\r\n")
+        self.assertNotIn(b"\r\r", original)
+        self.assertIn(b"=\r\n", original)
+        rewrite = build_banner_body(
+            original,
+            "ATTENZIONE: primo messaggio da "
+            "bounce-back.mnid2m.4364.1441726.13229.0.2409.c2577067325._@mn1.newsabbonati.it",
+            content_type="text/html; charset=utf-8",
+            content_transfer_encoding="quoted-printable",
+        )
+        self._assert_crlf_only(rewrite.body)
+        for line in rewrite.body.split(b"\r\n"):
+            self.assertLessEqual(len(line), 76)
+        decoded = quopri.decodestring(rewrite.body)
+        self.assertIn(b"mn1.newsabbonati.it", decoded)
+        self.assertNotIn(b"newsabbonati=", decoded)
+        self.assertIn(html_part.rstrip(b"\n").split(b"<body>")[1], decoded)
+
+    def test_base64_crlf_lines_stay_crlf(self):
+        original = base64.encodebytes(b"Ciao " * 40).replace(b"\n", b"\r\n")
+        rewrite = build_banner_body(
+            original,
+            "avviso",
+            content_type="text/plain; charset=utf-8",
+            content_transfer_encoding="base64",
+        )
+        self._assert_crlf_only(rewrite.body)
+
+    def test_8bit_crlf_body_gets_crlf_banner(self):
+        original = b"riga uno\r\nriga due\r\n"
+        rewrite = build_banner_body(
+            original,
+            "prima riga\nseconda riga",
+            content_type="text/plain; charset=utf-8",
+            content_transfer_encoding="8bit",
+        )
+        self._assert_crlf_only(rewrite.body)
+        self.assertTrue(rewrite.body.endswith(original))
+
     def test_signed_message_is_not_rewritten(self):
         self.assertIsNone(
             build_banner_body(b"firma", "avviso", content_type="multipart/signed")

@@ -132,7 +132,7 @@ Debian and Ubuntu (`all` architecture):
 
 ```bash
 sudo apt-get install -y python3-milter
-sudo dpkg -i first-contact_1.0.1_all.deb
+sudo dpkg -i first-contact_1.0.2_all.deb
 ```
 
 The `.deb` is compressed with `xz` and does not use `zstd`: it also installs
@@ -143,7 +143,7 @@ Enterprise Linux 8, 9 and 10 (noarch; `pymilter` comes from EPEL):
 
 ```bash
 sudo dnf install -y epel-release
-sudo dnf install ./first-contact-1.0.1-1.el8.noarch.rpm
+sudo dnf install ./first-contact-1.0.2-1.el8.noarch.rpm
 ```
 
 Where the code goes:
@@ -173,8 +173,8 @@ You need `debhelper` (>= 12) and `dh-python` for the deb, `rpm-build` and
 
 ```bash
 ./scripts/run-tests.sh
-./scripts/build-deb.sh     # dist/first-contact_1.0.1_all.deb
-./scripts/build-rpm.sh     # dist/first-contact-1.0.1-1.el*.noarch.rpm
+./scripts/build-deb.sh     # dist/first-contact_1.0.2_all.deb
+./scripts/build-rpm.sh     # dist/first-contact-1.0.2-1.el*.noarch.rpm
 ```
 
 The RPM must be built inside the target Enterprise Linux release (bytecode

@@ -272,18 +272,23 @@ def _decode_cte(payload: bytes, content_transfer_encoding: Optional[str]) -> Opt
     return payload
 
 
+def _with_newline(data: bytes, newline: bytes) -> bytes:
+    """Porta tutte le fini riga a ``newline`` (CRLF o LF), senza raddoppiarle."""
+    data = data.replace(b"\r\n", b"\n")
+    if newline == b"\r\n":
+        data = data.replace(b"\n", b"\r\n")
+    return data
+
+
 def _encode_cte(payload: bytes, content_transfer_encoding: Optional[str], newline: bytes) -> bytes:
+    # quopri usa gia' CRLF se l'input e' CRLF (soft break "=\r\n"), base64 usa
+    # sempre LF: si normalizza invece di sostituire alla cieca "\n" con "\r\n",
+    # che produrrebbe "=\r\r\n" (soft break non valido, "=" visibile nel testo).
     value = (content_transfer_encoding or "").strip().lower()
     if value == "base64":
-        encoded = base64.encodebytes(payload)
-        if newline == b"\r\n":
-            encoded = encoded.replace(b"\n", b"\r\n")
-        return encoded
+        return _with_newline(base64.encodebytes(payload), newline)
     if value == "quoted-printable":
-        encoded = quopri.encodestring(payload)
-        if newline == b"\r\n":
-            encoded = encoded.replace(b"\n", b"\r\n")
-        return encoded
+        return _with_newline(quopri.encodestring(payload), newline)
     return payload
 
 
@@ -366,8 +371,8 @@ def _rewrite_content(
         return payload, 0
 
     banner = build_html_banner(warning) if subtype == "html" else build_plain_banner(warning)
-    encoded_banner = _encode_text(banner, charset)
     newline = b"\r\n" if b"\r\n" in payload else b"\n"
+    encoded_banner = _with_newline(_encode_text(banner, charset), newline)
 
     if subtype == "html":
         changed_data = _insert_html(data, encoded_banner, newline)

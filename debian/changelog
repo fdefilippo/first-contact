@@ -1,3 +1,12 @@
+first-contact (1.0.2) unstable; urgency=medium
+
+  * Corretta la ricodifica quoted-printable delle parti con fine riga CRLF
+    (come le passa Postfix): i soft break diventavano "=\r\r\n" e i client
+    mostravano "=" spuri e righe spezzate in tutto il messaggio.
+  * L'avviso usa le stesse fine riga della parte in cui viene inserito.
+
+ -- Francesco Defilippo <francesco@defilippo.org>  Fri, 13 Nov 2026 20:00:00 +0100
+
 first-contact (1.0.1) unstable; urgency=medium
 
   * Documentazione in inglese (README.md); versione italiana in README.it.md.
