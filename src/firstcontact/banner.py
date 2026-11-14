@@ -366,6 +366,15 @@ def _rewrite_content(
     if subtype == "html" and not html_box:
         return payload, 0
 
+    if charset:
+        # The rewriter searches HTML tags and inserts CR/LF as ASCII bytes.
+        # UTF-16/32 (and other incompatible codecs) must remain untouched.
+        try:
+            if "\r\n<body>".encode(charset) != b"\r\n<body>":
+                return payload, 0
+        except (LookupError, UnicodeError):
+            return payload, 0
+
     data = _decode_cte(payload, content_transfer_encoding)
     if data is None:
         return payload, 0

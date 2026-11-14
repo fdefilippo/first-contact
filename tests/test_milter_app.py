@@ -428,6 +428,16 @@ class MilterTest(unittest.TestCase):
         self.assertEqual(milter.replace_calls, 0)
         self.assertEqual(len(milter.added), 1)
 
+    def test_multibyte_body_gets_header_without_body_replacement(self):
+        import base64
+        decider, _ = self.make()
+        milter = build_milter_class(self.module, decider, self.logger)()
+        body = base64.encodebytes("Originale".encode("utf-16le")).replace(b"\n", b"\r\n")
+        self.deliver(milter, headers=[("Content-Type", "text/plain; charset=utf-16le"),
+                                     ("Content-Transfer-Encoding", "base64")], body=body)
+        self.assertEqual(len(milter.added), 1)
+        self.assertEqual(milter.replace_calls, 0)
+
     def test_without_body_callback_nothing_is_replaced(self):
         decider, _ = self.make()
         milter = build_milter_class(self.module, decider, self.logger)()

@@ -304,6 +304,28 @@ class BuildTest(unittest.TestCase):
             )
         )
 
+    def test_multibyte_charsets_fall_back_without_replacing_payload(self):
+        for charset in ("utf-16", "utf-16le", "utf-16be", "utf-32le", "utf-32be"):
+            for subtype in ("plain", "html"):
+                with self.subTest(charset=charset, subtype=subtype):
+                    original = "<body>Testo originale</body>\r\n".encode(charset)
+                    encoded = base64.encodebytes(original).replace(b"\n", b"\r\n")
+                    self.assertIsNone(build_banner_body(
+                        encoded, "AVVISO\nseconda riga",
+                        content_type="text/%s; charset=%s" % (subtype, charset),
+                        content_transfer_encoding="base64"))
+
+    def test_multibyte_part_stays_identical_when_sibling_gets_banner(self):
+        encoded = base64.encodebytes("Originale".encode("utf-16le")).replace(b"\n", b"\r\n")
+        protected_part = (b"--mix\r\nContent-Type: text/plain; charset=utf-16le\r\n"
+                          b"Content-Transfer-Encoding: base64\r\n\r\n" + encoded)
+        original = (protected_part + b"--mix\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n"
+                    b"Original UTF8\r\n--mix--\r\n")
+        rewrite = build_banner_body(original, "AVVISO", content_type="multipart/mixed; boundary=mix")
+        self.assertEqual(rewrite.parts, 1)
+        self.assertIn(protected_part, rewrite.body)
+        self.assertIn(b"AVVISO", rewrite.body)
+
     def test_empty_warning_returns_none(self):
         self.assertIsNone(build_banner_body(b"x", "   "))
 

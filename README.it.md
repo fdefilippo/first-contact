@@ -413,6 +413,10 @@ Scelte di sicurezza:
   corpo: si ripiega sul solo header, senza mai sostituire il corpo con vuoto.
 * qualsiasi errore durante la riscrittura viene assorbito e registrato.
 
+Le parti con charset non compatibili con ASCII (per esempio UTF-16/UTF-32)
+o sconosciuti restano invariate byte per byte. Se nessun'altra parte testuale
+puo essere riscritta, il messaggio riceve soltanto l'header tecnico.
+
 ### 5.1 Mittente assente da tempo (`dormant_days`)
 
 Oltre al primo contatto, il milter segnala il caso opposto: un mittente che

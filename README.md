@@ -415,6 +415,10 @@ Safety choices:
   fall back to the header only, never replacing the body with an empty one.
 * any error during rewriting is logged and swallowed.
 
+Parts with non-ASCII-compatible charsets (for example UTF-16/UTF-32) or
+unknown charsets are left byte-for-byte unchanged. If no other text part can
+be rewritten, the message receives the technical header only.
+
 ### 5.1 Sender absent for a long time (`dormant_days`)
 
 Besides first contact, the milter flags the opposite case: a sender we
