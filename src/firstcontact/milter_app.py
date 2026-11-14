@@ -249,7 +249,8 @@ def build_milter_class(milter_mod, decider: Decider, logger: logging.Logger):
                 logger.warning("replacebody non disponibile", exc_info=True)
 
         def abort(self):
-            self._reset()
+            # RSET aborts a transaction, not the SMTP connection.
+            self._reset_message()
             return cont
 
         def close(self):
