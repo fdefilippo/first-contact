@@ -580,6 +580,15 @@ first-contact[...]: first-contact sender=mario.rossi@example.com recipient=anna@
 
 L'header resta utile per filtrare, anche con il banner attivo:
 
+Nei messaggi con piu destinatari envelope, gli header usano
+`recipient=undisclosed` e i placeholder `{recipient}` / `{recipients}` del
+banner sono vuoti, anche se viene raggiunto il tetto di destinatari elaborati.
+Gli indirizzi Ccn/Bcc non vengono aggiunti al messaggio condiviso. Il database
+continua a distinguere le coppie mittente/destinatario. Le regole client per
+indirizzo riportate sotto valgono solo con un destinatario envelope; per i
+messaggi condivisi cercare `X-First-Contact`, che segnala un avviso per almeno
+un destinatario.
+
 * **Outlook**: Regole -> "con parole specifiche nell'intestazione del
   messaggio" -> `X-First-Contact` -> sposta in "Primo contatto".
 * **Thunderbird**: Filtri -> "Personalizza" -> `X-First-Contact` ->
@@ -611,8 +620,9 @@ assenza).
 
 1. **Messaggi a piu' destinatari**: il messaggio e' uno solo in coda e viene
    consegnato uguale a tutti; il banner e' quindi lo stesso per tutti e ogni
-   casella vede gli header di *tutti* i destinatari nuovi. La regola lato
-   client deve cercare il proprio indirizzo (`recipient=...`). Per una
+   casella vede gli stessi avvisi, con `recipient=undisclosed` e placeholder
+   destinatari vuoti per proteggere gli indirizzi Ccn. Un avviso riguarda
+   almeno un destinatario, anche se gli altri conoscono gia il mittente. Per una
    semantica strettamente per-casella servirebbe agire in fase di consegna
    (LDA/LMTP per utente), non in milter.
 2. **Alias e gruppi**: la chiave e' il destinatario *envelope*; se un alias

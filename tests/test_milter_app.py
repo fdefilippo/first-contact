@@ -153,6 +153,26 @@ class MilterTest(unittest.TestCase):
         self.assertEqual(len(milter.added), 1)
         self.assertEqual(milter.added[0][2], -1)
 
+    def test_shared_message_never_adds_hidden_recipient_to_any_copy(self):
+        for cap in (1, 50):
+            with self.subTest(max_recipients=cap):
+                decider, store = self.make({
+                    "policy": {"max_recipients": str(cap)},
+                    "banner": {"text": "Warning {sender}: {recipient} / {recipients}"},
+                })
+                milter = build_milter_class(self.module, decider, self.logger)()
+                sender = "sender%d@example.net" % cap
+                self.deliver(milter, sender=sender,
+                             recipients=("<visible@example.it>", "<hidden@example.it>"),
+                             headers=[("To", "visible@example.it")], body=b"Original\r\n")
+                # Postfix applies the same modifications to every delivered copy.
+                added_content = "\n".join(value for _, value, _ in milter.added)
+                added_content += milter.body_value.decode("utf-8")
+                self.assertNotIn("hidden@example.it", added_content)
+                self.assertNotIn("visible@example.it", added_content)
+                self.assertIn("recipient=undisclosed", added_content)
+                self.assertIsNotNone(store.lookup(sender, "visible@example.it"))
+
     def test_authenticated_session_is_ignored(self):
         decider, store = self.make()
         milter = build_milter_class(self.module, decider, self.logger)()

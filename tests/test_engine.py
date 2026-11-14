@@ -105,7 +105,24 @@ class EngineTest(unittest.TestCase):
             self.context(recipients=["<anna@example.it>", "<carla@example.it>"])
         )
         self.assertEqual(len(decision.headers), 1)
-        self.assertIn("recipient=carla@example.it", decision.headers[0][1])
+        self.assertIn("recipient=undisclosed", decision.headers[0][1])
+
+    def test_shared_message_redacts_new_and_resumed_recipients(self):
+        decider, store = self.make({"banner": {
+            "text": "New {recipient} {recipients}",
+            "text_resumed": "Resumed {recipient} {recipients}",
+        }})
+        store.first_contact("mario@example.com", "old@example.it", first_seen=TS - 100 * 86400)
+        decision = decider.decide(self.context(
+            recipients=["<new@example.it>", "<old@example.it>"]))
+        self.assertEqual(len(decision.headers), 2)
+        self.assertEqual(len(decision.new_pairs), 1)
+        self.assertEqual(len(decision.resumed_pairs), 1)
+        for _, value in decision.headers:
+            self.assertIn("recipient=undisclosed", value)
+            self.assertNotIn("new@example.it", value)
+            self.assertNotIn("old@example.it", value)
+        self.assertNotIn("@example.it", decision.warning)
 
     def test_duplicate_recipient_is_emitted_once(self):
         decider, _ = self.make()
@@ -212,15 +229,15 @@ class VisibleWarningTest(unittest.TestCase):
         self.assertIn("allegati", decision.warning.lower())
         self.assertIsNone(decision.subject_tag)
 
-    def test_warning_mentions_all_new_recipients(self):
+    def test_warning_does_not_disclose_recipients_of_shared_message(self):
         decider, _ = self.make(
             {"banner": {"text": "Primo contatto: {sender} -> {recipients}"}}
         )
         decision = decider.decide(
             self.context(recipients=["<anna@example.it>", "<bruno@example.it>"])
         )
-        self.assertIn("anna@example.it", decision.warning)
-        self.assertIn("bruno@example.it", decision.warning)
+        self.assertNotIn("anna@example.it", decision.warning)
+        self.assertNotIn("bruno@example.it", decision.warning)
 
     def test_mode_off_has_no_visible_warning(self):
         decider, _ = self.make({"banner": {"mode": "off"}})

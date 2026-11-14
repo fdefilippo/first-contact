@@ -51,6 +51,7 @@ def build_milter_class(milter_mod, decider: Decider, logger: logging.Logger):
             trasportare piu' messaggi: MAIL FROM apre la transazione)."""
             self.sender: Optional[str] = None
             self.recipients: List[str] = []
+            self.multiple_recipients = False
             self.from_header: Optional[str] = None
             self.message_id: Optional[str] = None
             self.subject: Optional[str] = None
@@ -95,6 +96,8 @@ def build_milter_class(milter_mod, decider: Decider, logger: logging.Logger):
             return cont
 
         def envrcpt(self, recipient, *args):
+            if self.recipients:
+                self.multiple_recipients = True
             limit = decider.config.max_recipients
             if len(self.recipients) >= limit:
                 if not self._warned_limit:
@@ -159,6 +162,7 @@ def build_milter_class(milter_mod, decider: Decider, logger: logging.Logger):
                 ctx = MessageContext(
                     sender=self.sender,
                     recipients=[r for r in self.recipients if r],
+                    multiple_recipients=self.multiple_recipients,
                     from_header=self.from_header,
                     message_id=self.message_id,
                     subject=self.subject,

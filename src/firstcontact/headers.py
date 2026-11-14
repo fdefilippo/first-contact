@@ -66,7 +66,7 @@ def fold_header(value: str, width: int = 76) -> str:
 def build_first_contact_header(
     header_name: str,
     sender: str,
-    recipient: str,
+    recipient: Optional[str],
     first_seen: str,
     key_source: str,
     key_scope: str,
@@ -86,7 +86,7 @@ def build_first_contact_header(
     fields = [
         kind,
         "sender=" + encode_token(sender),
-        "recipient=" + encode_token(recipient),
+        "recipient=" + (encode_token(recipient) if recipient else "undisclosed"),
         "first-seen=" + encode_token(first_seen, maxlen=40),
     ]
     if last_seen:

@@ -33,6 +33,7 @@ class MessageContext(object):
         helo: Optional[str] = None,
         auth_authen: Optional[str] = None,
         received_at: Optional[float] = None,
+        multiple_recipients: bool = False,
     ) -> None:
         self.sender = sender
         self.recipients = recipients if recipients is not None else []
@@ -44,6 +45,8 @@ class MessageContext(object):
         self.helo = helo
         self.auth_authen = auth_authen
         self.received_at = received_at
+        # Include recipients beyond the processing cap in the privacy decision.
+        self.multiple_recipients = multiple_recipients or len(self.recipients) > 1
 
 
 class Decision(object):
@@ -149,7 +152,7 @@ class Decider:
                     build_first_contact_header(
                         header_name=self.config.header_name,
                         sender=sender_key,
-                        recipient=recipient,
+                        recipient=None if ctx.multiple_recipients else recipient,
                         first_seen=first_seen,
                         key_source=self.config.key_source,
                         key_scope=self.config.key_scope,
@@ -184,7 +187,7 @@ class Decider:
                 build_first_contact_header(
                     header_name=self.config.header_name,
                     sender=sender_key,
-                    recipient=recipient,
+                    recipient=None if ctx.multiple_recipients else recipient,
                     first_seen=_iso_utc(original_first),
                     key_source=self.config.key_source,
                     key_scope=self.config.key_scope,
@@ -221,7 +224,7 @@ class Decider:
                 render_warning(
                     self.config.banner_text,
                     sender=sender_key,
-                    recipients=[pair[1] for pair in decision.new_pairs],
+                    recipients=[] if ctx.multiple_recipients else [pair[1] for pair in decision.new_pairs],
                     first_seen=first_seen,
                     client=ctx.client_addr,
                 )
@@ -231,7 +234,7 @@ class Decider:
                 render_warning(
                     self.config.banner_text_resumed,
                     sender=sender,
-                    recipients=[recipient],
+                    recipients=[] if ctx.multiple_recipients else [recipient],
                     first_seen=original_first_seen,
                     client=ctx.client_addr,
                     days=days,

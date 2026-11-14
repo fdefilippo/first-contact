@@ -580,6 +580,14 @@ first-contact[...]: first-contact sender=mario.rossi@example.com recipient=anna@
 
 The header remains useful for filtering, even with the banner enabled:
 
+For messages with multiple envelope recipients, all alert headers use
+`recipient=undisclosed`, and `{recipient}` / `{recipients}` in banner templates
+are empty. This also applies when the recipient processing cap is reached:
+Ccn/Bcc addresses must never be added to a shared message. Database tracking
+remains per sender/recipient pair. Address-based client rules below apply
+only to messages with one envelope recipient; for shared messages match
+`X-First-Contact` itself, which indicates an alert for at least one recipient.
+
 * **Outlook**: Rules -> "with specific words in the message header" ->
   `X-First-Contact` -> move to "First contact".
 * **Thunderbird**: Filters -> "Customize" -> `X-First-Contact` -> "contains"
@@ -611,8 +619,9 @@ absence).
 
 1. **Multi-recipient messages**: there is one message in the queue and it is
    delivered identically to everyone; the banner is therefore the same for
-   all, and each mailbox sees the headers of *all* new recipients. The client
-   rule must look for its own address (`recipient=...`). Strictly per-mailbox
+   all. Headers use `recipient=undisclosed` and banner recipient placeholders
+   are empty, protecting Bcc addresses. An alert applies to at least one
+   recipient, including when another recipient already knows the sender. Strictly per-mailbox
    semantics would require acting at delivery time (per-user LDA/LMTP), not in
    a milter.
 2. **Aliases and groups**: the key is the *envelope* recipient; if an alias
