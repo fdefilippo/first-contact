@@ -7,6 +7,7 @@ in arrivo nello stesso istante non producono due allerte.
 """
 
 import os
+from functools import wraps
 import sqlite3
 import threading
 import time
@@ -42,14 +43,23 @@ STATUS_KNOWN = "known"
 STATUS_RESUMED = "resumed"
 
 
+def _serialized(method):
+    """Keep each operation and shutdown exclusive on the shared connection."""
+    @wraps(method)
+    def locked(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return locked
+
+
 class ContactStore:
     def __init__(self, path: str, track_stats: bool = True, timeout: float = 5.0):
         self.path = path
         self.track_stats = track_stats
         self.timeout = timeout
-        self._local = threading.local()
-        self._connections: List[sqlite3.Connection] = []
-        self._lock = threading.Lock()
+        # One bounded connection, also when pymilter creates new thread states.
+        self._conn: Optional[sqlite3.Connection] = None
+        self._lock = threading.RLock()
         self._ensured = False
 
     # -- connessioni ------------------------------------------------------
@@ -68,42 +78,53 @@ class ContactStore:
         self._ensured = True
 
     def _connect(self) -> sqlite3.Connection:
-        conn = getattr(self._local, "conn", None)
-        if conn is not None:
-            return conn
+        # Callers hold _lock for the entire operation, including cursor reads.
+        if self._conn is not None:
+            return self._conn
         self._ensure_dir()
+        conn = None
         try:
             conn = sqlite3.connect(
-                self.path, timeout=self.timeout, isolation_level=None
+                self.path, timeout=self.timeout, isolation_level=None,
+                check_same_thread=False,
             )
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA busy_timeout=%d" % int(self.timeout * 1000))
+            try:
+                conn.execute("PRAGMA journal_mode=WAL")
+            except sqlite3.OperationalError:
+                # Another process may be enabling WAL at this instant.
+                pass
+            conn.execute("PRAGMA synchronous=NORMAL")
+            # Serialize first-time DDL across processes too. On older SQLite,
+            # concurrent schema changes can invalidate prepared statements.
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                version = conn.execute("PRAGMA user_version").fetchone()[0]
+                if version != SCHEMA_VERSION:
+                    for statement in SCHEMA.split(";"):
+                        if statement.strip():
+                            conn.execute(statement)
+                    conn.execute("PRAGMA user_version=%d" % SCHEMA_VERSION)
+                conn.execute("COMMIT")
+            except Exception:
+                conn.rollback()
+                raise
         except sqlite3.Error as exc:
+            if conn is not None:
+                conn.close()
             raise StoreError("impossibile aprire %s: %s" % (self.path, exc))
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA busy_timeout=%d" % int(self.timeout * 1000))
-        try:
-            conn.execute("PRAGMA journal_mode=WAL")
-        except sqlite3.OperationalError:
-            # un altro thread/processo la sta impostando in questo istante
-            pass
-        conn.execute("PRAGMA synchronous=NORMAL")
-        conn.executescript(SCHEMA)
-        conn.execute("PRAGMA user_version=%d" % SCHEMA_VERSION)
-        self._local.conn = conn
-        with self._lock:
-            self._connections.append(conn)
+        self._conn = conn
         return conn
 
+    @_serialized
     def close(self) -> None:
-        with self._lock:
-            connections, self._connections = self._connections, []
-        for conn in connections:
-            try:
-                conn.close()
-            except sqlite3.Error:
-                pass
-        self._local = threading.local()
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
 
     # -- scrittura --------------------------------------------------------
+    @_serialized
     def record_message(
         self,
         sender: str,
@@ -193,6 +214,7 @@ class ContactStore:
         return status == STATUS_NEW
 
     # -- lettura ----------------------------------------------------------
+    @_serialized
     def lookup(self, sender: str, recipient: str) -> Optional[Dict]:
         conn = self._connect()
         try:
@@ -204,6 +226,7 @@ class ContactStore:
             raise StoreError("lettura da %s fallita: %s" % (self.path, exc))
         return dict(row) if row else None
 
+    @_serialized
     def iter_contacts(
         self,
         sender: Optional[str] = None,
@@ -226,11 +249,12 @@ class ContactStore:
         params.extend([max(1, int(limit)), max(0, int(offset))])
         conn = self._connect()
         try:
-            for row in conn.execute(query, params):
-                yield dict(row)
+            # Materialize under the lock; do not expose a live shared cursor.
+            return iter([dict(row) for row in conn.execute(query, params)])
         except sqlite3.Error as exc:
             raise StoreError("lettura da %s fallita: %s" % (self.path, exc))
 
+    @_serialized
     def stats(self) -> Dict[str, object]:
         conn = self._connect()
         try:
@@ -245,6 +269,7 @@ class ContactStore:
             raise StoreError("lettura da %s fallita: %s" % (self.path, exc))
         return {key: row[key] for key in row.keys()} if row else {}
 
+    @_serialized
     def integrity_check(self) -> str:
         conn = self._connect()
         try:
@@ -253,6 +278,7 @@ class ContactStore:
             raise StoreError("integrity_check fallito: %s" % (exc,))
 
     # -- manutenzione -----------------------------------------------------
+    @_serialized
     def prune(self, retention_days: int, now: Optional[int] = None, dry_run: bool = False) -> int:
         """Elimina i contatti non piu' visti da ``retention_days`` giorni."""
         if retention_days <= 0:
@@ -269,6 +295,7 @@ class ContactStore:
         except sqlite3.Error as exc:
             raise StoreError("prune su %s fallito: %s" % (self.path, exc))
 
+    @_serialized
     def pairs(self) -> int:
         conn = self._connect()
         try:

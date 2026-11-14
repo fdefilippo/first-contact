@@ -1,5 +1,6 @@
 import os
 import shutil
+import sqlite3
 import tempfile
 import threading
 import time
@@ -220,6 +221,71 @@ class StoreTest(unittest.TestCase):
             thread.join()
         self.assertEqual(errors, [])
         self.assertEqual(self.store.pairs(), 8)
+
+    def test_thread_churn_reuses_one_connection_and_main_can_close(self):
+        connections = []
+        errors = []
+        baseline = len(os.listdir("/proc/self/fd")) if os.path.isdir("/proc/self/fd") else None
+
+        def worker(index):
+            try:
+                self.store.first_contact("m%d@example.com" % index, "anna@example.it")
+                connections.append(self.store._conn)
+            except Exception as exc:
+                errors.append(exc)
+
+        for index in range(30):
+            thread = threading.Thread(target=worker, args=(index,))
+            thread.start()
+            thread.join()
+        self.assertEqual(errors, [])
+        self.assertEqual(len({id(conn) for conn in connections}), 1)
+        self.assertEqual(self.store.pairs(), 30)
+        if baseline is not None:
+            self.assertLessEqual(len(os.listdir("/proc/self/fd")) - baseline, 3)
+        connection = connections[0]
+        self.store.close()
+        with self.assertRaises(sqlite3.ProgrammingError):
+            connection.execute("SELECT 1")
+
+    def test_close_waits_for_active_operation(self):
+        self.store.first_contact("a@x.it", "b@y.it")
+        entered = threading.Event()
+        release = threading.Event()
+        closed = threading.Event()
+        errors = []
+
+        def trace(sql):
+            if sql.startswith("SELECT COUNT(*)"):
+                entered.set()
+                release.wait(5)
+
+        self.store._conn.set_trace_callback(trace)
+
+        def read():
+            try:
+                self.assertEqual(self.store.pairs(), 1)
+            except Exception as exc:
+                errors.append(exc)
+
+        def close():
+            self.store.close()
+            closed.set()
+
+        reader = threading.Thread(target=read)
+        closer = threading.Thread(target=close)
+        reader.start()
+        try:
+            self.assertTrue(entered.wait(5))
+            closer.start()
+            self.assertFalse(closed.wait(0.1))
+        finally:
+            release.set()
+            reader.join(5)
+            if closer.ident is not None:
+                closer.join(5)
+        self.assertEqual(errors, [])
+        self.assertTrue(closed.is_set())
 
     def test_prune(self):
         now = int(time.time())
