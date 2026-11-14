@@ -42,8 +42,14 @@ case " $current " in
     if [ "$APPLY" -eq 1 ]; then
       backup="/etc/postfix/main.cf.first-contact-removed.$(date +%Y%m%d%H%M%S)"
       cp -a /etc/postfix/main.cf "$backup"
-      new="$(printf '%s\n' $current | grep -v -- "$MILTER_TOKEN" | tr '\n' ' ')"
-      postconf -e "smtpd_milters = ${new% }"
+      read -r -a tokens <<< "$current"
+      new=""
+      for token in "${tokens[@]}"; do
+        if [ "$token" != "$MILTER_TOKEN" ]; then
+          new+="${new:+ }${token}"
+        fi
+      done
+      postconf -e "smtpd_milters = ${new}"
       postfix check
       systemctl reload postfix
       echo "  backup: $backup"
