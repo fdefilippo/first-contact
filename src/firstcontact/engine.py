@@ -86,6 +86,10 @@ class Decider:
         envelope_sender = normalize_address(ctx.sender)
         sender_key = self._sender_key(ctx, envelope_sender)
 
+        # Null-envelope exclusion is independent of the selected memory key.
+        if not envelope_sender and self.config.get_bool("policy", "skip_null_sender"):
+            return Decision(reason="null-sender")
+
         allowed, reason = self.policy.evaluate(
             envelope_sender or sender_key, ctx.client_addr, ctx.auth_authen
         )

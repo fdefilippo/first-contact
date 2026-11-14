@@ -161,6 +161,41 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(decision.reason, "null-sender")
         self.assertEqual(store.pairs(), 0)
 
+    def test_null_envelope_is_skipped_for_either_key_source(self):
+        for source in ("envelope", "from"):
+            for header in (None, "invalid", "Alice <alice@example.org>"):
+                with self.subTest(source=source, header=header):
+                    decider, store = self.make({"policy": {"key_source": source}})
+                    decision = decider.decide(self.context(sender="<>", from_header=header))
+                    self.assertEqual(decision.reason, "null-sender")
+                    self.assertEqual(decision.headers, [])
+                    self.assertIsNone(decision.warning)
+                    self.assertEqual(store.pairs(), 0)
+
+    def test_null_envelope_can_use_from_key_when_explicitly_enabled(self):
+        decider, store = self.make({"policy": {"key_source": "from", "skip_null_sender": "false"}})
+        decision = decider.decide(self.context(sender="<>", from_header="Alice <alice@example.org>"))
+        self.assertEqual(decision.new_pairs, [("alice@example.org", "anna@example.it")])
+        self.assertEqual(store.pairs(), 1)
+        for header in (None, "invalid"):
+            with self.subTest(header=header):
+                decision = decider.decide(self.context(sender="<>", from_header=header))
+                self.assertEqual(decision.reason, "invalid-sender")
+
+    def test_enabled_null_envelope_still_obeys_other_policy_rules(self):
+        for context, overrides, reason in (
+            ({"auth_authen": "alice"}, {}, "authenticated"),
+            ({"client_addr": "127.0.0.1"}, {}, "trusted-network"),
+            ({}, {"whitelist": {"senders": "alice@example.org"}}, "whitelist-address"),
+        ):
+            with self.subTest(reason=reason):
+                config = {"policy": {"key_source": "from", "skip_null_sender": "false"}}
+                config.update(overrides)
+                decider, store = self.make(config)
+                context.update(sender="<>", from_header="Alice <alice@example.org>")
+                self.assertEqual(decider.decide(self.context(**context)).reason, reason)
+                self.assertEqual(store.pairs(), 0)
+
     def test_custom_header_name(self):
         decider, _ = self.make({"milter": {"header_name": "X-Primo-Contatto"}})
         decision = decider.decide(self.context())
