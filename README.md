@@ -12,12 +12,13 @@ The warning is **visible to the user**, not just technical:
 * always, an `X-First-Contact` header usable in client rules.
 
 ```
-ATTENZIONE: e' il primo messaggio che ricevi da mario.rossi@example.com.
-Non e' detto che sia pericoloso, ma presta attenzione ad allegati e link:
-non aprire file e non cliccare collegamenti se non ti fidi del mittente.
+WARNING: This is the first message you have received from mario.rossi@example.com.
+It may be harmless, but take care with attachments and links:
+do not open files or follow links unless you trust the sender.
 ```
 
-The default text is Italian; it can be replaced in `[banner] text`.
+The examples below use English text. The built-in defaults are Italian;
+customise them with `[banner] text` and `[banner] text_resumed`.
 
 If the milter fails or is stopped, mail keeps flowing
 (`milter_default_action = accept`). With the body banner the original content
@@ -30,12 +31,14 @@ Italiano: [README.it.md](README.it.md).
 ## 1. How it works
 
 ```
-                 +-----------+   milter    +-------------------+
-sender --> smtpd --> rspamd --> opendkim --> first-contact --> queue --> LMTP/LDA
-                                                      |
-                                                      v
-                                        /var/lib/first-contact/contacts.db
-                                        table contacts(sender, recipient, ...)
+sender --> Postfix smtpd --> queue --> delivery
+                 ^
+                 | milter protocol
+                 v
+            first-contact
+                 |
+                 v
+        SQLite contact history
 ```
 
 * The milter receives from Postfix the **envelope** sender (`MAIL FROM`), the
@@ -45,7 +48,7 @@ sender --> smtpd --> rspamd --> opendkim --> first-contact --> queue --> LMTP/LD
   if the row is inserted, this is the first message. The operation is atomic,
   so two copies of the same message arriving together do not produce two
   warnings. The same query also detects a sender **absent for too long** (see
-  section 5.1): again, only the first of several simultaneous messages raises
+  section 4.1): again, only the first of several simultaneous messages raises
   the warning.
 * The whitelist is checked **before anything else**: if the sender or the
   client network matches, the message gets no warning and is not written to
@@ -86,47 +89,16 @@ disclaimer tools such as alterMIME.
 `multipart/signed` and `multipart/encrypted` are not rewritten: any change
 would invalidate the signature or encryption.
 
-## 2. Project layout
-
-```
-src/firstcontact/       Python package (stdlib only + pymilter for "serve")
-  config.py             INI configuration load and validation
-  policy.py             address normalisation, "what to look at" rules
-  headers.py            safe header construction (ASCII, RFC 5322 folding)
-  banner.py             warning text and body MIME rewriting
-  whitelist.py          excluded senders/networks, with automatic reload
-  store.py              SQLite, atomic "first contact"
-  engine.py             decision: header, banner, subject prefix
-  milter_app.py         pymilter glue (SMTP callbacks)
-  cli.py                serve / check / list / stats / prune / doctor / simulate
-etc/first-contact.ini   example configuration
-etc/whitelist.txt       example whitelist (one entry per line)
-etc/tmpfiles.d/         directory permissions at boot
-systemd/                service unit
-postfix/                main.cf change (notes on chroot, ordering and DKIM)
-packaging/              command launcher, systemd drop-in, RPM spec
-debian/                 Debian packaging (debhelper, compat 12)
-man/                    first-contact(8) manual page
-scripts/install.sh      source install in /opt (dry-run by default)
-scripts/uninstall.sh    removal
-scripts/run-tests.sh    tests
-scripts/build-deb.sh    .deb package
-scripts/build-rpm.sh    noarch .rpm package
-.github/workflows/      package builds and release on tags
-tests/                  161 tests (unittest, no dependencies)
-examples/sample.eml     sample message
-```
-
-## 3. Installation
+## 2. Installation
 
 Requirements: Postfix, Python >= 3.6 and `pymilter` (`python3-milter` on
 Debian, `python3-pymilter` on Enterprise Linux, from EPEL). The packages
 install the command, the configuration, the systemd unit and the
 `tmpfiles.d` rules; they create the `firstcontact` service user and **enable
 and start** `first-contact-milter`. They do not modify Postfix: the milter
-must be added to `smtpd_milters` (section 3.3).
+must be added to `smtpd_milters` (section 2.3).
 
-### 3.1 deb and rpm packages
+### 2.1 deb and rpm packages
 
 Debian and Ubuntu (`all` architecture):
 
@@ -165,7 +137,7 @@ first-contact doctor
 systemctl status first-contact-milter --no-pager
 ```
 
-### 3.2 Building the packages
+### 2.2 Building the packages
 
 You need `debhelper` (>= 12) and `dh-python` for the deb, `rpm-build` and
 `python3-rpm-macros` for the RPM. The scripts use the version declared in
@@ -190,7 +162,7 @@ artifacts on every push and pull request, packages attached to the GitHub
 release for `v*` tags (created with `gh release create`, no third-party
 actions).
 
-### 3.3 Postfix: adding the milter
+### 2.3 Postfix: adding the milter
 
 The token to append **at the end** of `smtpd_milters` is:
 
@@ -215,7 +187,7 @@ and, if `opendkim` **signs** mail (`Mode s`/`sv`), before `opendkim` (the
 local signature then covers the banner as well). Details and checks are in
 `postfix/main.cf.snippet`.
 
-### 3.4 Rspamd integration (optional)
+### 2.4 Rspamd integration (optional)
 
 first-contact already works next to Rspamd: both are Postfix milters, and the
 order in `smtpd_milters` is enough. Keep first-contact after Rspamd so messages
@@ -272,7 +244,7 @@ Notes:
   to the database;
 * the visible banner remains first-contact's job.
 
-### 3.5 Source installation (/opt layout)
+### 2.5 Source installation (/opt layout)
 
 If you do not use the packages, the install script places the code in
 `/opt/first-contact` and creates a wrapper with `PYTHONPATH`:
@@ -321,11 +293,11 @@ systemctl daemon-reload && systemctl enable --now first-contact-milter
 # then main.cf as in postfix/main.cf.snippet
 ```
 
-## 4. Configuration
+## 3. Configuration
 
 `/etc/first-contact/config.ini`, INI format (Python 3.7 has no TOML). After a
 change: `systemctl restart first-contact-milter`. The **whitelist** reloads
-by itself instead (see section 6).
+by itself instead (see section 5).
 
 | key | default | meaning |
 |---|---|---|
@@ -373,16 +345,17 @@ After a few days of normal mail, set it to `false` and restart: regular
 correspondents are already known and the warning fires only for genuinely new
 senders.
 
-## 5. The visible warning (banner)
+## 4. The visible warning (banner)
 
 With `[banner] mode = body` (default) the user sees a **yellow box with black
 text and a black dashed border** at the top of the message text:
 
 ```text
 +--------------------------------------------------------------+
-|  ATTENZIONE: e' il primo messaggio che ricevi da ...          |  yellow background
-|  Non e' detto che sia pericoloso, ma presta attenzione ad     |  black text
-|  allegati e link: ...                                         |  dashed border
+|  WARNING: This is the first message from ...                 |  yellow background
+|  It may be harmless, but take care with attachments          |  black text
+|  and links. Do not open files or follow links unless         |  dashed border
+|  you trust the sender.                                       |
 +--------------------------------------------------------------+
 [ original content, attachments unchanged ]
 ```
@@ -419,18 +392,18 @@ Parts with non-ASCII-compatible charsets (for example UTF-16/UTF-32) or
 unknown charsets are left byte-for-byte unchanged. If no other text part can
 be rewritten, the message receives the technical header only.
 
-### 5.1 Sender absent for a long time (`dormant_days`)
+### 4.1 Sender absent for a long time (`dormant_days`)
 
 Besides first contact, the milter flags the opposite case: a sender we
 **know** who has not written for at least `[policy] dormant_days` days
 (default **90**, `0` disables the rule). This helps spot messages that imitate
 a regular correspondent after months of silence.
 
-The default text is deliberately short and direct:
+An English version of the resumed-sender warning is:
 
 ```text
-ATTENZIONE: mario.rossi@example.com non ti scriveva da 100 giorni.
-Verifica l'identita' del mittente prima di aprire allegati o link.
+WARNING: You have not received a message from mario.rossi@example.com for 100 days.
+Verify the sender's identity before opening attachments or following links.
 ```
 
 The box stays the same (yellow, dashed border); only the text changes.
@@ -443,8 +416,8 @@ of absence) and `{last_seen}` (date of the last message).
 dormant_days = 90
 
 [banner]
-text_resumed = ATTENZIONE: {sender} non ti scriveva da {days} giorni.
-               Verifica l'identita' del mittente prima di aprire allegati o link.
+text_resumed = WARNING: You have not received a message from {sender} for {days} days.
+               Verify the sender's identity before opening attachments or following links.
 ```
 
 How it works:
@@ -485,7 +458,7 @@ while keeping them valid. Practical consequences:
   this is the right choice if in-transit DKIM matters more than the visible
   warning.
 
-## 6. Whitelist: excluded senders and networks
+## 5. Whitelist: excluded senders and networks
 
 For some origins the warning is useless (or annoying). The whitelist excludes
 them: they get **neither header nor banner** and nothing is written to the
@@ -532,7 +505,7 @@ Logs state the exclusion reason explicitly: `whitelist-address`,
 `whitelist-domain`, `whitelist-cidr`. The whitelist wins over everything: a
 whitelisted sender raises no warning even if authenticated or internal.
 
-## 7. Verification
+## 6. Verification
 
 ```bash
 first-contact doctor          # config, DB, socket, main.cf, milter order, banner, whitelist
@@ -609,7 +582,7 @@ The header contains `kind=first-message` or `kind=resumed`: to tell the two
 cases apart, look for `resumed` in the value (and `days=` for the days of
 absence).
 
-## 8. Scope: what is and is not evaluated
+## 7. Scope: what is and is not evaluated
 
 * Only mail arriving over SMTP from an external client.
 * Skipped: SASL-authenticated sessions (`submission`, internal users), clients
@@ -619,7 +592,7 @@ absence).
 * To evaluate internal mail as well: `process_authenticated = true`,
   `process_local = true` and `trusted_networks =` (empty).
 
-## 9. Known limitations
+## 8. Known limitations
 
 1. **Multi-recipient messages**: there is one message in the queue and it is
    delivered identically to everyone; the banner is therefore the same for
@@ -636,18 +609,18 @@ absence).
    can still use different addresses each time to avoid looking "new". The
    database is not an anti-spam system, it is a reminder.
 4. **DKIM**: with the banner enabled the sender's signatures are invalid
-   (section 5). With `mode = off` the problem does not exist.
+   (section 4). With `mode = off` the problem does not exist.
 5. **Signed/encrypted messages**: not rewritten (neither body nor subject);
    they get the header only.
 6. **Empty database on first start**: use `observe_only` for the warm-up
-   (section 4).
+   (section 3).
 7. **Retention**: `retention_days` is not a scheduler; run
    `first-contact prune` from cron/systemd timer if desired.
 8. **IMAP clients**: the banner is inserted into the message text and shown as
    a normal body; the `X-First-Contact` header does not appear in the preview
    but is available to rules.
 
-## 10. Maintenance
+## 9. Maintenance
 
 ```bash
 first-contact stats                 # pairs, senders, recipients, messages
@@ -675,7 +648,7 @@ sqlite3 /var/lib/first-contact/contacts.db ".backup /root/contacts-$(date +%F).d
 To wipe everything and start over: stop the service, remove `contacts.db`,
 `contacts.db-wal`, `contacts.db-shm`, restart.
 
-## 11. Uninstallation
+## 10. Uninstallation
 
 With the packages:
 
@@ -698,7 +671,7 @@ With the source installation:
 The token is removed from `smtpd_milters` with a `main.cf` backup and a
 Postfix reload.
 
-## 12. Tests
+## 11. Tests
 
 ```bash
 ./scripts/run-tests.sh
@@ -714,6 +687,6 @@ fake `Milter` module, subject prefix, skipped signed messages, fallback on an
 oversized body, fallback when `insheader` is unavailable, and the fact that a
 decider failure never interrupts mail.
 
-## 13. License
+## 12. License
 
 GPL-2.0-or-later. The full text is in `LICENSE`.
