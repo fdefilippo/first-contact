@@ -42,7 +42,7 @@ class SenderWhitelist:
         self.domains = set()
         self.networks: List[ipaddress._BaseNetwork] = []
         self.warnings: List[str] = []
-        self._file_mtime: Optional[Tuple[int, int]] = None
+        self._file_signature: Optional[Tuple[int, int, int, int, int]] = None
         self._file_addresses = set()
         self._file_domains = set()
         self._file_networks: List[ipaddress._BaseNetwork] = []
@@ -69,8 +69,9 @@ class SenderWhitelist:
                 self._file_missing_logged = True
             return
         self._file_missing_logged = False
-        signature = (int(info.st_mtime), int(info.st_size))
-        if signature == self._file_mtime:
+        signature = (info.st_dev, info.st_ino, info.st_mtime_ns,
+                     info.st_ctime_ns, info.st_size)
+        if signature == self._file_signature:
             return
         addresses, domains, networks, warnings = set(), set(), [], []
         try:
@@ -98,7 +99,7 @@ class SenderWhitelist:
         self._file_addresses = addresses
         self._file_domains = domains
         self._file_networks = networks
-        self._file_mtime = signature
+        self._file_signature = signature
         self.warnings = warnings
         for warning in warnings:
             log.warning("%s", warning)

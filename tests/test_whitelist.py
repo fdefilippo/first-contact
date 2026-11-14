@@ -119,6 +119,31 @@ class FileTest(unittest.TestCase):
         os.utime(self.path, (time.time() + 5, time.time() + 5))
         self.assertIsNotNone(whitelist.matches("anna@example.com", None))
 
+    def test_same_size_edit_within_one_second_reloads_rules(self):
+        self.write("old@example.org\n")
+        first = 1800000000100000000
+        second = 1800000000900000000
+        os.utime(self.path, ns=(first, first))
+        whitelist = SenderWhitelist(self.path)
+        self.assertIsNotNone(whitelist.matches("old@example.org", None))
+        self.write("new@example.org\n")
+        os.utime(self.path, ns=(second, second))
+        self.assertIsNone(whitelist.matches("old@example.org", None))
+        self.assertIsNotNone(whitelist.matches("new@example.org", None))
+
+    def test_atomic_replacement_with_same_size_and_mtime_reloads_rules(self):
+        self.write("old@example.org\n")
+        whitelist = SenderWhitelist(self.path)
+        self.assertIsNotNone(whitelist.matches("old@example.org", None))
+        info = os.stat(self.path)
+        replacement = self.path + ".new"
+        with open(replacement, "w") as handle:
+            handle.write("new@example.org\n")
+        os.utime(replacement, ns=(info.st_atime_ns, info.st_mtime_ns))
+        os.replace(replacement, self.path)
+        self.assertIsNone(whitelist.matches("old@example.org", None))
+        self.assertIsNotNone(whitelist.matches("new@example.org", None))
+
     def test_invalid_line_does_not_hide_valid_ones(self):
         self.write("!!!\nmario@example.com\n")
         whitelist = SenderWhitelist(self.path)
