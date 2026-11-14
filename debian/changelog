@@ -1,3 +1,19 @@
+first-contact (1.0.3) unstable; urgency=medium
+
+  * Protetti i destinatari Ccn negli avvisi dei messaggi condivisi.
+  * Conservati IP e HELO della connessione dopo RSET e abort.
+  * Corretto il ciclo di vita delle connessioni SQLite e serializzata
+    l'inizializzazione concorrente dello schema anche su EL8.
+  * I comandi diagnostici non inizializzano il database e, se eseguiti da
+    root, accedono ai file con l'identita del servizio.
+  * Preservati i corpi con charset incompatibili e gli allegati multipart.
+  * Corretta la disinstallazione con un solo milter configurato.
+  * Rispettato skip_null_sender anche quando key_source=from.
+  * Rilevate le modifiche rapide e le sostituzioni atomiche della whitelist.
+  * Aggiunte regressioni per i nove finding e aggiornata la documentazione.
+
+ -- Francesco Defilippo <francesco@defilippo.org>  Sat, 14 Nov 2026 06:55:26 +0100
+
 first-contact (1.0.2) unstable; urgency=medium
 
   * Corretta la ricodifica quoted-printable delle parti con fine riga CRLF
