@@ -2,6 +2,8 @@
 
 import argparse
 import datetime
+from contextlib import contextmanager
+import pwd
 import logging
 import logging.handlers
 import os
@@ -91,8 +93,36 @@ def _load_config(args) -> Config:
     return config
 
 
-def _open_store(config: Config) -> ContactStore:
-    return open_store(config)
+def _open_store(config: Config, readonly: bool = False) -> ContactStore:
+    return open_store(config, readonly=readonly)
+
+
+@contextmanager
+def _service_identity(command):
+    """Run administrative queries as the service user, including WAL sidecars.
+
+    SQLite mode=ro can still create -wal/-shm files. A root diagnostic must
+    not leave these owned by root. This CLI path runs before starting threads.
+    """
+    if command not in ("doctor", "check", "list", "stats", "prune") or os.geteuid() != 0:
+        yield
+        return
+    try:
+        account = pwd.getpwnam("firstcontact")
+    except KeyError:
+        # Development/source checkout without an installed service account.
+        yield
+        return
+    old_uid, old_gid, old_groups = os.geteuid(), os.getegid(), os.getgroups()
+    try:
+        os.initgroups(account.pw_name, account.pw_gid)
+        os.setegid(account.pw_gid)
+        os.seteuid(account.pw_uid)
+        yield
+    finally:
+        os.seteuid(old_uid)
+        os.setegid(old_gid)
+        os.setgroups(old_groups)
 
 
 # --------------------------------------------------------------------------
@@ -155,100 +185,100 @@ def _key_for(config: Config, address: str) -> str:
 # --------------------------------------------------------------------------
 def cmd_check(args) -> int:
     config = _load_config(args)
-    store = _open_store(config)
-    sender = (
-        from_header_address(args.sender)
-        if args.from_header
-        else normalize_address(args.sender)
-    )
-    recipient = normalize_address(args.recipient)
-    if not sender or not recipient:
-        sys.stderr.write("indirizzo mittente o destinatario non valido\n")
-        return EXIT_CONFIG
-    sender_key = _key_for(config, sender)
-
-    policy = Policy(config)
-    match = policy.whitelist.matches(sender, args.client)
-    if match:
-        print(
-            "ESCLUSO sender=%s: in whitelist (%s), nessun avviso verrebbe aggiunto"
-            % (sender, match)
+    with _open_store(config, readonly=True) as store:
+        sender = (
+            from_header_address(args.sender)
+            if args.from_header
+            else normalize_address(args.sender)
         )
-        return EXIT_OK
-    if args.client:
-        print("whitelist      : nessuna corrispondenza (client=%s)" % args.client)
+        recipient = normalize_address(args.recipient)
+        if not sender or not recipient:
+            sys.stderr.write("indirizzo mittente o destinatario non valido\n")
+            return EXIT_CONFIG
+        sender_key = _key_for(config, sender)
 
-    row = store.lookup(sender_key, recipient)
-    dormant_days = config.dormant_days
-    if row:
-        last_seen = int(row["last_seen"] or row["first_seen"])
-        days = max(0, int((time.time() - last_seen) // 86400))
-        note = ""
-        if dormant_days > 0:
-            if days >= dormant_days:
-                note = " (soglia %dgg superata: avviso 'resumed')" % dormant_days
-            else:
-                note = " (soglia %dgg: ancora nessun avviso)" % dormant_days
-        print(
-            "KNOWN  sender=%s recipient=%s primo=%s ultimo=%s messaggi=%s assenza=%dgg%s"
-            % (
-                row["sender"],
-                row["recipient"],
-                _iso(row["first_seen"]),
-                _iso(row["last_seen"]),
-                row["messages"],
-                days,
-                note,
+        policy = Policy(config)
+        match = policy.whitelist.matches(sender, args.client)
+        if match:
+            print(
+                "ESCLUSO sender=%s: in whitelist (%s), nessun avviso verrebbe aggiunto"
+                % (sender, match)
             )
+            return EXIT_OK
+        if args.client:
+            print("whitelist      : nessuna corrispondenza (client=%s)" % args.client)
+
+        row = store.lookup(sender_key, recipient)
+        dormant_days = config.dormant_days
+        if row:
+            last_seen = int(row["last_seen"] or row["first_seen"])
+            days = max(0, int((time.time() - last_seen) // 86400))
+            note = ""
+            if dormant_days > 0:
+                if days >= dormant_days:
+                    note = " (soglia %dgg superata: avviso 'resumed')" % dormant_days
+                else:
+                    note = " (soglia %dgg: ancora nessun avviso)" % dormant_days
+            print(
+                "KNOWN  sender=%s recipient=%s primo=%s ultimo=%s messaggi=%s assenza=%dgg%s"
+                % (
+                    row["sender"],
+                    row["recipient"],
+                    _iso(row["first_seen"]),
+                    _iso(row["last_seen"]),
+                    row["messages"],
+                    days,
+                    note,
+                )
+            )
+            return EXIT_OK
+        print(
+            "NEW    sender=%s recipient=%s (nessun contatto precedente)"
+            % (sender_key, recipient)
         )
         return EXIT_OK
-    print(
-        "NEW    sender=%s recipient=%s (nessun contatto precedente)"
-        % (sender_key, recipient)
-    )
-    return EXIT_OK
 
 
 def cmd_list(args) -> int:
     config = _load_config(args)
-    store = _open_store(config)
-    sender = normalize_address(args.sender_filter) if args.sender_filter else None
-    recipient = normalize_address(args.recipient_filter) if args.recipient_filter else None
-    rows = list(
-        store.iter_contacts(
-            sender=sender, recipient=recipient, limit=args.limit, offset=args.offset
-        )
-    )
-    if not rows:
-        print("nessun contatto memorizzato")
-        return EXIT_OK
-    print("%-40s %-40s %-20s %-20s %8s" % ("MITTENTE", "DESTINATARIO", "PRIMO", "ULTIMO", "MSG"))
-    for row in rows:
-        print(
-            "%-40s %-40s %-20s %-20s %8d"
-            % (
-                row["sender"],
-                row["recipient"],
-                _iso(row["first_seen"]),
-                _iso(row["last_seen"]),
-                row["messages"],
+    with _open_store(config, readonly=True) as store:
+        sender = normalize_address(args.sender_filter) if args.sender_filter else None
+        recipient = normalize_address(args.recipient_filter) if args.recipient_filter else None
+        rows = list(
+            store.iter_contacts(
+                sender=sender, recipient=recipient, limit=args.limit, offset=args.offset
             )
         )
-    return EXIT_OK
+        if not rows:
+            print("nessun contatto memorizzato")
+            return EXIT_OK
+        print("%-40s %-40s %-20s %-20s %8s" % ("MITTENTE", "DESTINATARIO", "PRIMO", "ULTIMO", "MSG"))
+        for row in rows:
+            print(
+                "%-40s %-40s %-20s %-20s %8d"
+                % (
+                    row["sender"],
+                    row["recipient"],
+                    _iso(row["first_seen"]),
+                    _iso(row["last_seen"]),
+                    row["messages"],
+                )
+            )
+        return EXIT_OK
 
 
 def cmd_stats(args) -> int:
     config = _load_config(args)
-    store = _open_store(config)
-    data = store.stats()
-    print("database      : %s" % config.store_path)
-    print("coppie        : %s" % (data.get("pairs") or 0))
-    print("mittenti      : %s" % (data.get("senders") or 0))
-    print("destinatari   : %s" % (data.get("recipients") or 0))
-    print("messaggi      : %s" % (data.get("messages") or 0))
-    print("primo contatto: %s" % _iso(data.get("oldest")))
-    print("ultimo        : %s" % _iso(data.get("newest")))
-    return EXIT_OK
+    with _open_store(config, readonly=True) as store:
+        data = store.stats()
+        print("database      : %s" % config.store_path)
+        print("coppie        : %s" % (data.get("pairs") or 0))
+        print("mittenti      : %s" % (data.get("senders") or 0))
+        print("destinatari   : %s" % (data.get("recipients") or 0))
+        print("messaggi      : %s" % (data.get("messages") or 0))
+        print("primo contatto: %s" % _iso(data.get("oldest")))
+        print("ultimo        : %s" % _iso(data.get("newest")))
+        return EXIT_OK
 
 
 def cmd_prune(args) -> int:
@@ -257,13 +287,13 @@ def cmd_prune(args) -> int:
     if days <= 0:
         print("retention_days non impostata (o 0): nessuna cancellazione")
         return EXIT_OK
-    store = _open_store(config)
-    removed = store.prune(days, dry_run=args.dry_run)
-    print(
-        "%s %d (contatti non visti da oltre %d giorni)"
-        % ("da eliminare:" if args.dry_run else "eliminati:", removed, days)
-    )
-    return EXIT_OK
+    with _open_store(config, readonly=args.dry_run) as store:
+        removed = store.prune(days, dry_run=args.dry_run)
+        print(
+            "%s %d (contatti non visti da oltre %d giorni)"
+            % ("da eliminare:" if args.dry_run else "eliminati:", removed, days)
+        )
+        return EXIT_OK
 
 
 # --------------------------------------------------------------------------
@@ -583,7 +613,7 @@ def cmd_doctor(args) -> int:
 
     store = None
     try:
-        store = _open_store(config)
+        store = _open_store(config, readonly=True)
         result = store.integrity_check()
         if result == "ok":
             _report("OK", "database %s integro (%d coppie)" % (config.store_path, store.pairs()))
@@ -597,7 +627,7 @@ def cmd_doctor(args) -> int:
 
     store_dir = os.path.dirname(os.path.abspath(config.store_path))
     if os.path.isdir(store_dir):
-        if os.access(store_dir, os.W_OK):
+        if os.access(store_dir, os.W_OK, effective_ids=True):
             _report("OK", "directory database %s scrivibile" % store_dir)
         else:
             _report(
@@ -614,7 +644,7 @@ def cmd_doctor(args) -> int:
         if os.path.isdir(parent):
             mode = stat.S_IMODE(os.stat(parent).st_mode)
             _report("OK", "directory socket %s (modo %04o)" % (parent, mode))
-            if not os.access(parent, os.W_OK):
+            if not os.access(parent, os.W_OK, effective_ids=True):
                 _report("FAIL", "directory socket non scrivibile dall'utente corrente")
             if not mode & stat.S_ISGID:
                 _report(
@@ -820,7 +850,8 @@ def main(argv=None) -> int:
         parser.print_help()
         return EXIT_CONFIG
     try:
-        return args.func(args)
+        with _service_identity(args.command):
+            return args.func(args)
     except ConfigError as exc:
         sys.stderr.write("errore di configurazione: %s\n" % exc)
         return EXIT_CONFIG

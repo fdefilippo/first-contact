@@ -287,6 +287,23 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(errors, [])
         self.assertTrue(closed.is_set())
 
+    def test_readonly_store_does_not_create_database_or_directory(self):
+        missing = os.path.join(self.directory, "missing", "contacts.db")
+        with ContactStore(missing, readonly=True) as reader:
+            with self.assertRaises(StoreError):
+                reader.pairs()
+        self.assertFalse(os.path.exists(os.path.dirname(missing)))
+
+    def test_readonly_store_sees_wal_without_changing_schema_or_contacts(self):
+        self.store.first_contact("a@x.it", "b@y.it")
+        self.store._conn.execute("PRAGMA user_version=7")
+        with ContactStore(self.path, readonly=True) as reader:
+            self.assertEqual(reader.pairs(), 1)
+            self.assertEqual(reader._conn.execute("PRAGMA user_version").fetchone()[0], 7)
+            with self.assertRaises(StoreError):
+                reader.first_contact("other@x.it", "b@y.it")
+        self.assertEqual(self.store.pairs(), 1)
+
     def test_prune(self):
         now = int(time.time())
         self.store.first_contact("vecchio@example.com", "anna@example.it", first_seen=now - 900 * 86400)

@@ -652,6 +652,16 @@ first-contact prune --days 730 --dry-run
 first-contact prune --days 730
 ```
 
+Read commands (`doctor`, `check`, `list`, `stats`, and `prune --dry-run`)
+open an existing database without initializing it. Before the first message,
+a missing database is reported as unavailable and is left for the service to
+create. When run as root with the service account installed, administrative
+queries and pruning use the `firstcontact` identity, so SQLite WAL sidecars
+also retain the correct owner. A custom configuration must be readable by
+that account.
+
+
+
 Backup (SQLite in WAL mode, online):
 
 ```bash

@@ -653,6 +653,16 @@ first-contact prune --days 730 --dry-run
 first-contact prune --days 730
 ```
 
+I comandi di lettura (`doctor`, `check`, `list`, `stats` e `prune --dry-run`)
+aprono un database esistente senza inizializzarlo. Prima del primo messaggio,
+un database assente viene segnalato come non disponibile e lasciato creare
+al servizio. Se eseguiti da root con l'utente di servizio installato, i comandi
+amministrativi e il pruning usano l'identita `firstcontact`, anche per gli
+sidecar WAL di SQLite. La configurazione personalizzata deve essere leggibile
+da quell'utente.
+
+
+
 Backup (SQLite in modalita' WAL, a caldo):
 
 ```bash

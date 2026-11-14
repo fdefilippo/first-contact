@@ -12,6 +12,7 @@ import sqlite3
 import threading
 import time
 from typing import Dict, Iterator, List, Optional, Tuple
+from urllib.parse import quote
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS contacts (
@@ -53,8 +54,10 @@ def _serialized(method):
 
 
 class ContactStore:
-    def __init__(self, path: str, track_stats: bool = True, timeout: float = 5.0):
+    def __init__(self, path: str, track_stats: bool = True, timeout: float = 5.0,
+                 readonly: bool = False):
         self.path = path
+        self.readonly = readonly
         self.track_stats = track_stats
         self.timeout = timeout
         # One bounded connection, also when pymilter creates new thread states.
@@ -81,35 +84,42 @@ class ContactStore:
         # Callers hold _lock for the entire operation, including cursor reads.
         if self._conn is not None:
             return self._conn
-        self._ensure_dir()
+        if not self.readonly:
+            self._ensure_dir()
+        target = self.path
+        if self.readonly:
+            target = "file:" + quote(os.path.abspath(self.path), safe="/") + "?mode=ro"
         conn = None
         try:
             conn = sqlite3.connect(
-                self.path, timeout=self.timeout, isolation_level=None,
-                check_same_thread=False,
+                target, timeout=self.timeout, isolation_level=None,
+                check_same_thread=False, uri=self.readonly,
             )
             conn.row_factory = sqlite3.Row
             conn.execute("PRAGMA busy_timeout=%d" % int(self.timeout * 1000))
-            try:
-                conn.execute("PRAGMA journal_mode=WAL")
-            except sqlite3.OperationalError:
-                # Another process may be enabling WAL at this instant.
-                pass
-            conn.execute("PRAGMA synchronous=NORMAL")
-            # Serialize first-time DDL across processes too. On older SQLite,
-            # concurrent schema changes can invalidate prepared statements.
-            conn.execute("BEGIN IMMEDIATE")
-            try:
-                version = conn.execute("PRAGMA user_version").fetchone()[0]
-                if version != SCHEMA_VERSION:
-                    for statement in SCHEMA.split(";"):
-                        if statement.strip():
-                            conn.execute(statement)
-                    conn.execute("PRAGMA user_version=%d" % SCHEMA_VERSION)
-                conn.execute("COMMIT")
-            except Exception:
-                conn.rollback()
-                raise
+            if self.readonly:
+                conn.execute("PRAGMA query_only=ON")
+            else:
+                try:
+                    conn.execute("PRAGMA journal_mode=WAL")
+                except sqlite3.OperationalError:
+                    # Another process may be enabling WAL at this instant.
+                    pass
+                conn.execute("PRAGMA synchronous=NORMAL")
+                # Serialize first-time DDL across processes too. On older SQLite,
+                # concurrent schema changes can invalidate prepared statements.
+                conn.execute("BEGIN IMMEDIATE")
+                try:
+                    version = conn.execute("PRAGMA user_version").fetchone()[0]
+                    if version != SCHEMA_VERSION:
+                        for statement in SCHEMA.split(";"):
+                            if statement.strip():
+                                conn.execute(statement)
+                        conn.execute("PRAGMA user_version=%d" % SCHEMA_VERSION)
+                    conn.execute("COMMIT")
+                except Exception:
+                    conn.rollback()
+                    raise
         except sqlite3.Error as exc:
             if conn is not None:
                 conn.close()
@@ -122,6 +132,12 @@ class ContactStore:
         if self._conn is not None:
             self._conn.close()
             self._conn = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        self.close()
 
     # -- scrittura --------------------------------------------------------
     @_serialized
@@ -304,9 +320,10 @@ class ContactStore:
             raise StoreError("lettura da %s fallita: %s" % (self.path, exc))
 
 
-def open_store(config) -> ContactStore:
+def open_store(config, readonly: bool = False) -> ContactStore:
     return ContactStore(
         config.store_path,
         track_stats=config.get_bool("store", "track_stats"),
         timeout=5.0,
+        readonly=readonly,
     )
