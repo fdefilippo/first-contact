@@ -202,6 +202,40 @@ class BuildTest(unittest.TestCase):
             )
         )
 
+    def test_multipart_attachments_preserve_their_entire_subtree(self):
+        for subtype in ("alternative", "related", "mixed"):
+            with self.subTest(subtype=subtype):
+                attachment = (
+                    b"Content-Type: multipart/" + subtype.encode("ascii") + b"; boundary=inner\r\n"
+                    b'Content-Disposition: attachment; filename="saved.mime"\r\n\r\n'
+                    b"--inner\r\nContent-Type: text/plain\r\n\r\nAttached text\r\n"
+                    b"--inner\r\nContent-Type: text/html\r\n\r\n<body>Attached HTML</body>\r\n"
+                    b"--inner--\r\n")
+                original = (b"--outer\r\nContent-Type: text/plain\r\n\r\nMain body\r\n"
+                            b"--outer\r\n" + attachment + b"--outer--\r\n")
+                rewrite = build_banner_body(original, "AVVISO",
+                                            content_type="multipart/mixed; boundary=outer")
+                self.assertEqual(rewrite.parts, 1)
+                self.assertIn(attachment, rewrite.body)
+                self.assertEqual(rewrite.body.count(b"AVVISO"), 1)
+
+    def test_root_attachment_is_not_rewritten(self):
+        for content_type in ("text/plain", "text/html", "multipart/mixed; boundary=x"):
+            with self.subTest(content_type=content_type):
+                self.assertIsNone(build_banner_body(
+                    b"--x\r\nContent-Type: text/plain\r\n\r\nOriginal\r\n--x--\r\n",
+                    "AVVISO", content_type=content_type,
+                    content_disposition='Attachment; filename="saved.txt"'))
+
+    def test_attached_rfc822_is_not_rewritten(self):
+        attached = (b"Content-Type: message/rfc822\r\n\r\nFrom: sender@example.org\r\n"
+                    b"Content-Type: text/plain\r\n\r\nForwarded original\r\n")
+        original = (b"--outer\r\nContent-Type: text/plain\r\n\r\nMain body\r\n"
+                    b"--outer\r\n" + attached + b"--outer--\r\n")
+        rewrite = build_banner_body(original, "AVVISO", content_type="multipart/mixed; boundary=outer")
+        self.assertEqual(rewrite.parts, 1)
+        self.assertIn(attached, rewrite.body)
+
     def test_base64_part_keeps_its_encoding(self):
         original = base64.encodebytes(b"Ciao")
         rewrite = build_banner_body(

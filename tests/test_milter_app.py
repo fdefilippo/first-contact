@@ -438,6 +438,15 @@ class MilterTest(unittest.TestCase):
         self.assertEqual(len(milter.added), 1)
         self.assertEqual(milter.replace_calls, 0)
 
+    def test_top_level_attachment_gets_header_without_rewriting_body(self):
+        decider, _ = self.make()
+        milter = build_milter_class(self.module, decider, self.logger)()
+        self.deliver(milter, headers=[("Content-Type", "text/plain"),
+                                     ("Content-Disposition", 'attachment; filename="saved.txt"')],
+                     body=b"Original attachment\r\n")
+        self.assertEqual(len(milter.added), 1)
+        self.assertEqual(milter.replace_calls, 0)
+
     def test_without_body_callback_nothing_is_replaced(self):
         decider, _ = self.make()
         milter = build_milter_class(self.module, decider, self.logger)()

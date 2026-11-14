@@ -326,6 +326,10 @@ def _rewrite_content(
     if depth > MAX_DEPTH:
         return payload, 0
 
+    # An attachment owns its entire subtree, including multipart containers.
+    if (disposition or "").split(";", 1)[0].strip().lower() == "attachment":
+        return payload, 0
+
     maintype, subtype, boundary, charset = _content_info(content_type)
 
     if maintype == "multipart":
@@ -358,9 +362,6 @@ def _rewrite_content(
         return payload, 0
 
     if maintype != "text" or subtype not in ("plain", "html"):
-        return payload, 0
-
-    if "attachment" in (disposition or "").lower():
         return payload, 0
 
     if subtype == "html" and not html_box:
@@ -426,6 +427,7 @@ def build_banner_body(
     content_transfer_encoding: Optional[str] = None,
     skip_protected: bool = True,
     html_box: bool = True,
+    content_disposition: Optional[str] = None,
 ) -> Optional[BannerRewrite]:
     """Aggiunge l'avviso alle parti testuali; ``None`` se non c'e' nulla da fare."""
     if skip_protected and is_protected(content_type):
@@ -437,7 +439,7 @@ def build_banner_body(
         original_body or b"",
         content_type or "text/plain; charset=utf-8",
         content_transfer_encoding,
-        "",
+        content_disposition,
         warning,
         html_box,
         0,

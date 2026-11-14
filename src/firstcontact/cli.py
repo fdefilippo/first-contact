@@ -318,6 +318,7 @@ def cmd_simulate(args) -> int:
         from_header = message_id = subject = None
         raw_body = None
         content_type = content_transfer_encoding = None
+        content_disposition = None
         sender = args.sender
         if args.eml:
             with open(args.eml, "rb") as handle:
@@ -328,6 +329,7 @@ def cmd_simulate(args) -> int:
             subject = message.get("Subject")
             content_type = message.get("Content-Type")
             content_transfer_encoding = message.get("Content-Transfer-Encoding")
+            content_disposition = message.get("Content-Disposition")
             raw_body = _split_body(raw)
             if not sender:
                 sender = from_header_address(from_header)
@@ -386,7 +388,7 @@ def cmd_simulate(args) -> int:
             print("  " + join_headers(decision.headers).replace("\n", "\n  "))
 
         _print_visible_warning(decision, config, raw_body, content_type,
-                               content_transfer_encoding)
+                               content_transfer_encoding, content_disposition)
         return EXIT_OK
     finally:
         store.close()
@@ -398,7 +400,8 @@ def cmd_simulate(args) -> int:
                     pass
 
 
-def _print_visible_warning(decision, config, raw_body, content_type, cte) -> None:
+def _print_visible_warning(decision, config, raw_body, content_type, cte,
+                           content_disposition=None) -> None:
     """Mostra cosa vedrebbe l'utente (banner e/o oggetto)."""
     if decision.subject_tag:
         print("oggetto        : %s <oggetto originale>" % decision.subject_tag)
@@ -427,6 +430,7 @@ def _print_visible_warning(decision, config, raw_body, content_type, cte) -> Non
             content_type=content_type,
             content_transfer_encoding=cte,
             skip_protected=config.skip_signed,
+            content_disposition=content_disposition,
         )
     except BannerError as exc:
         print("banner         : non costruibile (%s): resterebbe il solo header" % exc)

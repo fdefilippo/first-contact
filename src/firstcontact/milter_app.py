@@ -58,6 +58,7 @@ def build_milter_class(milter_mod, decider: Decider, logger: logging.Logger):
             self.auth_authen: Optional[str] = None
             self.content_type: Optional[str] = None
             self.content_transfer_encoding: Optional[str] = None
+            self.content_disposition: Optional[str] = None
             self.mime_version: Optional[str] = None
             self._headers_seen = set()
             self._warned_limit = False
@@ -119,6 +120,7 @@ def build_milter_class(milter_mod, decider: Decider, logger: logging.Logger):
                 "subject",
                 "content-type",
                 "content-transfer-encoding",
+                "content-disposition",
                 "mime-version",
             ):
                 self._headers_seen.add(key)
@@ -132,6 +134,8 @@ def build_milter_class(milter_mod, decider: Decider, logger: logging.Logger):
                     self.content_type = (value or "").strip()
                 elif key == "content-transfer-encoding":
                     self.content_transfer_encoding = (value or "").strip()
+                elif key == "content-disposition":
+                    self.content_disposition = (value or "").strip()
                 else:
                     self.mime_version = (value or "").strip()
             return cont
@@ -232,6 +236,7 @@ def build_milter_class(milter_mod, decider: Decider, logger: logging.Logger):
                     content_transfer_encoding=self.content_transfer_encoding,
                     skip_protected=decider.config.skip_signed,
                     html_box=decider.config.html_box,
+                    content_disposition=self.content_disposition,
                 )
             except BannerError:
                 logger.warning("impossibile costruire l'avviso", exc_info=True)
