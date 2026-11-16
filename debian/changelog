@@ -1,3 +1,14 @@
+first-contact (1.0.4) unstable; urgency=medium
+
+  * Il banner segnala dopo il mittente l'altro indirizzo quando From ed
+    envelope From sono diversi, con entrambe le sorgenti della chiave.
+  * Confronto su indirizzi normalizzati, anche per i contatti che ricompaiono
+    dopo un'assenza e per i template personalizzati con {sender}.
+  * Aggiunte regressioni per banner testo/HTML, sanitizzazione e mantenimento
+    della chiave di memoria; aggiornata la documentazione.
+
+ -- Francesco Defilippo <francesco@defilippo.org>  Mon, 16 Nov 2026 18:48:29 +0100
+
 first-contact (1.0.3) unstable; urgency=medium
 
   * Protetti i destinatari Ccn negli avvisi dei messaggi condivisi.

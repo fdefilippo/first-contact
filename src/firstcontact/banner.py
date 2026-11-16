@@ -74,6 +74,8 @@ def render_warning(
     client: Optional[str] = None,
     days: Optional[int] = None,
     last_seen: Optional[str] = None,
+    from_sender: Optional[str] = None,
+    envelope_sender: Optional[str] = None,
 ) -> str:
     """Sostituisce i segnaposto e impagina il testo a 78 colonne.
 
@@ -82,10 +84,18 @@ def render_warning(
     Sono disponibili ``{sender}``, ``{recipient}``, ``{recipients}``,
     ``{first_seen}``, ``{client}`` e, per il mittente che ricompare,
     ``{days}`` e ``{last_seen}``.
+    Se gli indirizzi normalizzati From/envelope sono disponibili e diversi,
+    il segnaposto del mittente include l'altro indirizzo e la differenza.
     """
     recipient_text = ", ".join(sanitize_text(r) for r in recipients if r)
+    sender_text = sanitize_text(sender)
+    if from_sender and envelope_sender and from_sender != envelope_sender:
+        if sender == from_sender:
+            sender_text += " (envelope From: %s, diverso dal From)" % sanitize_text(envelope_sender)
+        else:
+            sender_text += " (From: %s, diverso dall'envelope From)" % sanitize_text(from_sender)
     replacements = {
-        "{sender}": sanitize_text(sender),
+        "{sender}": sender_text,
         "{recipient}": sanitize_text(recipients[0]) if recipients else "",
         "{recipients}": recipient_text,
         "{first_seen}": sanitize_text(first_seen, maxlen=40),

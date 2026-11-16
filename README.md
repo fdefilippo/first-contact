@@ -108,7 +108,7 @@ Debian and Ubuntu (`all` architecture):
 
 ```bash
 sudo apt-get install -y python3-milter
-sudo dpkg -i first-contact_1.0.3_all.deb
+sudo dpkg -i first-contact_1.0.4_all.deb
 ```
 
 The `.deb` is compressed with `xz` and does not use `zstd`: it also installs
@@ -119,7 +119,7 @@ Enterprise Linux 8, 9 and 10 (noarch; `pymilter` comes from EPEL):
 
 ```bash
 sudo dnf install -y epel-release
-sudo dnf install ./first-contact-1.0.3-1.el8.noarch.rpm
+sudo dnf install ./first-contact-1.0.4-1.el8.noarch.rpm
 ```
 
 Where the code goes:
@@ -149,8 +149,8 @@ You need `debhelper` (>= 12) and `dh-python` for the deb, `rpm-build` and
 
 ```bash
 ./scripts/run-tests.sh
-./scripts/build-deb.sh     # dist/first-contact_1.0.3_all.deb
-./scripts/build-rpm.sh     # dist/first-contact-1.0.3-1.el*.noarch.rpm
+./scripts/build-deb.sh     # dist/first-contact_1.0.4_all.deb
+./scripts/build-rpm.sh     # dist/first-contact-1.0.4-1.el*.noarch.rpm
 ```
 
 The RPM must be built inside the target Enterprise Linux release (bytecode
@@ -370,6 +370,15 @@ part gets the inline-styled box (the only way to style mail clients), the
 `multipart/alternative` both are updated, so the client always shows the
 version it uses. The email structure does not change: no new `multipart`, no
 attachment. To disable HTML and use text only: `html_box = false`.
+
+When the parsed `From:` address differs from the envelope sender (`MAIL FROM`),
+`{sender}` includes the other address immediately after the reported sender,
+with a note that the addresses differ. This works with either `key_source`,
+for both first-contact and resumed warnings, including custom templates that
+use `{sender}`. Display names and address casing do not count as differences;
+no comparison is shown if either address is missing or invalid. The note is
+informational: mailing lists commonly use different addresses, and this does
+not create an additional alert for an already known contact.
 
 The text is customisable in `[banner] text`; placeholders are replaced and
 lines wrapped at 78 columns. A more explicit example:

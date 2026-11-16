@@ -264,6 +264,61 @@ class VisibleWarningTest(unittest.TestCase):
         self.assertIn("allegati", decision.warning.lower())
         self.assertIsNone(decision.subject_tag)
 
+    def test_sender_difference_for_new_and_resumed_with_both_key_sources(self):
+        for source in ("envelope", "from"):
+            for scope in ("address", "domain"):
+                for resumed in (False, True):
+                    with self.subTest(source=source, scope=scope, resumed=resumed):
+                        decider, store = self.make({"policy": {"key_source": source, "key_scope": scope}})
+                        stage = "resumed" if resumed else "new"
+                        recipient = "%s-%s-%s@example.it" % (source, scope, stage)
+                        sender_key = "bounce@relay.example.net" if source == "envelope" else "mario@example.com"
+                        memory_key = sender_key.rsplit("@", 1)[-1] if scope == "domain" else sender_key
+                        if resumed:
+                            store.first_contact(memory_key, recipient, first_seen=TS - 100 * 86400)
+                        decision = decider.decide(self.context(
+                            sender="<bounce@relay.example.net>", recipients=[recipient],
+                        ))
+                        note = ("From: mario@example.com, diverso dall'envelope From" if source == "envelope"
+                                else "envelope From: bounce@relay.example.net, diverso dal From")
+                        self.assertIn(sender_key + " (" + note + ")", " ".join(decision.warning.split()))
+                        self.assertEqual(bool(decision.resumed_pairs), resumed)
+                        self.assertEqual(bool(decision.new_pairs), not resumed)
+                        self.assertIsNotNone(store.lookup(memory_key, recipient))
+
+    def test_sender_difference_ignores_display_names_case_and_missing_from(self):
+        for source in ("envelope", "from"):
+            for number, header in enumerate(("Mario Rossi <MARIO@EXAMPLE.COM>", None, "not-an-address")):
+                with self.subTest(source=source, header=header):
+                    decider, _ = self.make({"policy": {"key_source": source}})
+                    decision = decider.decide(self.context(
+                        sender="<Mario@Example.COM>", from_header=header,
+                        recipients=["%s-%d@example.it" % (source, number)],
+                    ))
+                    self.assertIn("mario@example.com", decision.warning)
+                    self.assertNotIn("diverso", decision.warning)
+
+    def test_null_envelope_allowed_does_not_invent_a_sender_difference(self):
+        decider, _ = self.make({"policy": {"key_source": "from", "skip_null_sender": "false"}})
+        decision = decider.decide(self.context(sender="<>"))
+        self.assertIn("mario@example.com", decision.warning)
+        self.assertNotIn("diverso", decision.warning)
+
+    def test_difference_does_not_alert_again_for_a_known_from(self):
+        decider, _ = self.make({"policy": {"key_source": "from"}})
+        first = decider.decide(self.context(sender="<bounce-1@relay.example.net>"))
+        second = decider.decide(self.context(sender="<bounce-2@relay.example.net>"))
+        self.assertIn("diverso", first.warning)
+        self.assertIsNone(second.warning)
+        self.assertEqual(second.headers, [])
+
+    def test_sender_difference_is_included_in_custom_template(self):
+        decider, _ = self.make({"banner": {"text": "Primo contatto: {sender}"}})
+        decision = decider.decide(self.context(sender="<bounce@relay.example.net>"))
+        self.assertEqual(" ".join(decision.warning.split()),
+                         "Primo contatto: bounce@relay.example.net "
+                         "(From: mario@example.com, diverso dall'envelope From)")
+
     def test_warning_does_not_disclose_recipients_of_shared_message(self):
         decider, _ = self.make(
             {"banner": {"text": "Primo contatto: {sender} -> {recipients}"}}

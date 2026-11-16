@@ -1,5 +1,6 @@
 """Test del collante pymilter usando un finto modulo ``Milter``."""
 
+import html
 import logging
 import os
 import shutil
@@ -294,6 +295,30 @@ class MilterTest(unittest.TestCase):
         self.assertNotIn("anna@example.it", value)
 
     # -- avviso visibile -------------------------------------------------
+    def test_sender_difference_reaches_plain_and_html_banners(self):
+        for source in ("envelope", "from"):
+            for subtype in ("plain", "html"):
+                with self.subTest(source=source, subtype=subtype):
+                    decider, _ = self.make({"policy": {"key_source": source}})
+                    milter = build_milter_class(self.module, decider, self.logger)()
+                    headers = [("From", "Mario <mario@example.com>"),
+                               ("Content-Type", "text/%s; charset=utf-8" % subtype)]
+                    original = b"<html><body><p>Original</p></body></html>" if subtype == "html" else b"Original\n"
+                    result = self.deliver(
+                        milter, sender="<bounce@relay.example.net>",
+                        recipients=("%s-%s@example.it" % (source, subtype),),
+                        headers=headers, body=original,
+                    )
+                    self.assertEqual(result, self.module.CONTINUE)
+                    body = milter.body_value.decode("utf-8").replace("<br>", " ")
+                    normalized = " ".join(body.split())
+                    note = ("From: mario@example.com, diverso dall'envelope From" if source == "envelope"
+                            else "envelope From: bounce@relay.example.net, diverso dal From")
+                    # HTML escapes the apostrophe in the Italian annotation.
+                    self.assertIn(note, html.unescape(normalized))
+                    self.assertIn(b"Original", milter.body_value)
+                    self.assertEqual(len(milter.added), 1)
+
     def test_body_banner_is_prepended_without_new_mime_parts(self):
         decider, _ = self.make()
         milter = build_milter_class(self.module, decider, self.logger)()

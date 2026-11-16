@@ -1,4 +1,4 @@
-.TH FIRST-CONTACT 8 "2026-11-14" "first-contact 1.0.3" "System Manager's Manual"
+.TH FIRST-CONTACT 8 "2026-11-16" "first-contact 1.0.4" "System Manager's Manual"
 .SH NAME
 first-contact \- Postfix milter that flags first-time senders
 .SH SYNOPSIS
@@ -12,6 +12,9 @@ is a Postfix milter that adds an
 header when a recipient receives a message for the first time from a sender,
 or when a known sender returns after a long absence.
 It can also insert a visible warning at the top of the message text.
+When the From address differs from the envelope sender, the visible warning
+includes the other address immediately after the reported sender and notes
+the difference. This applies to both first-contact and resumed warnings.
 .PP
 The milter never stops mail delivery: on error it answers
 .B CONTINUE

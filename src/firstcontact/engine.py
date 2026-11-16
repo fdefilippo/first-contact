@@ -222,6 +222,10 @@ class Decider:
         if mode not in ("body", "both"):
             return
 
+        from_sender = from_header_address(ctx.from_header)
+        envelope_sender = normalize_address(ctx.sender)
+        if not is_address_like(envelope_sender):
+            envelope_sender = None
         sections = []
         if decision.new_pairs:
             sections.append(
@@ -231,6 +235,8 @@ class Decider:
                     recipients=[] if ctx.multiple_recipients else [pair[1] for pair in decision.new_pairs],
                     first_seen=first_seen,
                     client=ctx.client_addr,
+                    from_sender=from_sender,
+                    envelope_sender=envelope_sender,
                 )
             )
         for sender, recipient, days, last_seen, original_first_seen in decision.resumed_pairs:
@@ -243,6 +249,8 @@ class Decider:
                     client=ctx.client_addr,
                     days=days,
                     last_seen=last_seen,
+                    from_sender=from_sender,
+                    envelope_sender=envelope_sender,
                 )
             )
         text = "\n\n".join(section for section in sections if section)

@@ -30,6 +30,30 @@ class SanitizeTest(unittest.TestCase):
 
 
 class RenderTest(unittest.TestCase):
+    def test_sender_difference_follows_selected_sender(self):
+        for sender, note in (
+            ("bounce@relay.example.net", "From: mario@example.com, diverso dall'envelope From"),
+            ("mario@example.com", "envelope From: bounce@relay.example.net, diverso dal From"),
+        ):
+            with self.subTest(sender=sender):
+                text = render_warning(
+                    "Attenzione: {sender}.", sender=sender, recipients=[], first_seen="x",
+                    from_sender="mario@example.com", envelope_sender="bounce@relay.example.net",
+                )
+                self.assertEqual(" ".join(text.split()), "Attenzione: %s (%s)." % (sender, note))
+
+    def test_sender_difference_is_sanitized_and_html_escaped(self):
+        text = render_warning(
+            "Avviso: {sender}", sender="bounce@example.net", recipients=[], first_seen="x",
+            from_sender="<script>\r\n&evil@example.com", envelope_sender="bounce@example.net",
+        )
+        self.assertNotIn("\r", text)
+        self.assertNotIn("\x00", text)
+        banner = build_html_banner(text)
+        self.assertNotIn("<script>", banner)
+        self.assertIn("&lt;script&gt;", banner)
+        self.assertIn("&amp;evil@example.com", banner)
+
     def test_placeholders(self):
         text = render_warning(
             "Da {sender} a {recipient} ({recipients}) il {first_seen} via {client}",

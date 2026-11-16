@@ -129,7 +129,7 @@ Debian e Ubuntu (architettura `all`):
 
 ```bash
 sudo apt-get install -y python3-milter
-sudo dpkg -i first-contact_1.0.3_all.deb
+sudo dpkg -i first-contact_1.0.4_all.deb
 ```
 
 Il `.deb` e' compresso con `xz` e non usa `zstd`: si installa anche su
@@ -140,7 +140,7 @@ Enterprise Linux 8, 9 e 10 (noarch; `pymilter` arriva da EPEL):
 
 ```bash
 sudo dnf install -y epel-release
-sudo dnf install ./first-contact-1.0.3-1.el8.noarch.rpm
+sudo dnf install ./first-contact-1.0.4-1.el8.noarch.rpm
 ```
 
 Dove finisce il codice:
@@ -170,8 +170,8 @@ Servono `debhelper` (>= 12) e `dh-python` per il deb, `rpm-build` e
 
 ```bash
 ./scripts/run-tests.sh
-./scripts/build-deb.sh     # dist/first-contact_1.0.3_all.deb
-./scripts/build-rpm.sh     # dist/first-contact-1.0.3-1.el*.noarch.rpm
+./scripts/build-deb.sh     # dist/first-contact_1.0.4_all.deb
+./scripts/build-rpm.sh     # dist/first-contact-1.0.4-1.el*.noarch.rpm
 ```
 
 L'RPM va costruito dentro la versione target di Enterprise Linux (i bytecode
@@ -391,6 +391,15 @@ cornice tratteggiata in ASCII. In un `multipart/alternative` vengono
 aggiornate entrambe, quindi il client mostra sempre la versione che usa. La
 struttura dell'email non cambia: nessun nuovo `multipart`, nessun allegato.
 Per disattivare l'HTML e usare soltanto il testo: `html_box = false`.
+
+Se l'indirizzo estratto da `From:` e' diverso dal mittente della busta
+(`MAIL FROM`), `{sender}` riporta subito dopo il mittente segnalato anche
+l'altro indirizzo, indicando la differenza. Vale per entrambi i `key_source`,
+per il primo contatto e per il mittente assente da tempo, anche con template
+personalizzati che usano `{sender}`. Il nome visualizzato e le maiuscole
+non contano come differenze; il confronto non compare se uno dei due indirizzi
+e' assente o non valido. La nota e' informativa: le mailing list usano spesso
+indirizzi diversi e questo non genera un nuovo avviso per un contatto gia' noto.
 
 Il testo e' personalizzabile in `[banner] text`; i segnaposto vengono
 sostituiti e le righe impaginate a 78 colonne. Un esempio piu' esplicito:
