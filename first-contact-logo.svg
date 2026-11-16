@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240">
+  <title>first-contact – logo</title>
+
+  <!-- alone radar che si espande dal punto di primo contatto -->
+  <circle cx="186" cy="74" r="14" fill="none" stroke="#E8A33D" stroke-width="3">
+    <animate attributeName="r" values="14;34" dur="2.4s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.9;0" dur="2.4s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- busta -->
+  <g stroke="#2B3856" stroke-width="8" stroke-linejoin="round" stroke-linecap="round" fill="none">
+    <rect x="30" y="74" width="180" height="120" rx="14" fill="#FFFFFF"/>
+    <!-- lembo -->
+    <path d="M34 84 L120 146 L206 84"/>
+  </g>
+
+  <!-- badge "primo contatto": punto esclamativo -->
+  <g>
+    <circle cx="186" cy="74" r="26" fill="#E8A33D" stroke="#FFFFFF" stroke-width="6"/>
+    <rect x="182" y="60" width="8" height="18" rx="4" fill="#2B3856"/>
+    <circle cx="186" cy="86" r="4.5" fill="#2B3856"/>
+  </g>
+</svg>

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="first-contact-logo.svg" alt="first-contact logo" width="160" height="160">
+</p>
+
 # first-contact
 
 Postfix milter that warns a recipient when they receive a message **for the
