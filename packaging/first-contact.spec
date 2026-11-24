@@ -6,7 +6,7 @@
 %{!?_tmpfilesdir:%global _tmpfilesdir %{_prefix}/lib/tmpfiles.d}
 
 Name:           first-contact
-Version:        1.0.4
+Version:        1.0.5
 Release:        1%{?dist}
 Summary:        Milter Postfix che segnala il primo messaggio da un mittente
 
@@ -101,6 +101,12 @@ fi
 %{_mandir}/man8/first-contact.8*
 
 %changelog
+* Tue Nov 24 2026 Francesco Defilippo <francesco@defilippo.org> - 1.0.5-1
+- La disinstallazione gestisce le liste Postfix con virgole, preservando
+  ordine e opzioni degli altri milter.
+- Serializzate le ricariche concorrenti della whitelist.
+- Aggiunte regressioni per entrambi i casi.
+
 * Mon Nov 16 2026 Francesco Defilippo <francesco@defilippo.org> - 1.0.4-1
 - Il banner segnala la differenza tra From ed envelope From subito dopo il
   mittente, anche per i contatti ripresi e i template personalizzati.

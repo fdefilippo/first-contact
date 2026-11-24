@@ -1,3 +1,13 @@
+first-contact (1.0.5) unstable; urgency=medium
+
+  * La disinstallazione rimuove il milter anche dalle liste Postfix con
+    virgole e preserva ordine e opzioni degli altri filtri.
+  * Le ricariche concorrenti della whitelist vengono serializzate e
+    ogni controllo usa le regole di una sola versione del file.
+  * Aggiunte regressioni per entrambi i casi.
+
+ -- Francesco Defilippo <francesco@defilippo.org>  Tue, 24 Nov 2026 05:34:16 +0100
+
 first-contact (1.0.4) unstable; urgency=medium
 
   * Il banner segnala dopo il mittente l'altro indirizzo quando From ed
