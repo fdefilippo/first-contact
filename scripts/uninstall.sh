@@ -30,6 +30,32 @@ run() {
   if [ "$APPLY" -eq 1 ]; then echo "+ $*"; "$@"; else echo "  (dry-run) $*"; fi
 }
 
+split_milters() {
+  local value="$1 " entry="" char depth=0 i
+  # Gli spazi e le virgole dentro un blocco appartengono alle opzioni del milter.
+  for ((i = 0; i < ${#value}; i++)); do
+    char=${value:i:1}
+    case "$char" in
+      '{') depth=$((depth + 1)) ;;
+      '}')
+        if ((depth == 0)); then return 1; fi
+        depth=$((depth - 1))
+        ;;
+      [[:space:],])
+        if ((depth == 0)); then
+          if [[ -n "$entry" ]]; then
+            milters+=("$entry")
+            entry=""
+          fi
+          continue
+        fi
+        ;;
+    esac
+    entry+="$char"
+  done
+  ((depth == 0))
+}
+
 if [ "$APPLY" -eq 1 ] && [ "$(id -u)" -ne 0 ]; then
   echo "serve root per --apply" >&2
   exit 1
@@ -37,29 +63,38 @@ fi
 
 echo "== postfix: rimozione del milter da smtpd_milters"
 current="$(postconf -h smtpd_milters 2>/dev/null || true)"
-case " $current " in
-  *" ${MILTER_TOKEN} "*)
-    if [ "$APPLY" -eq 1 ]; then
-      backup="/etc/postfix/main.cf.first-contact-removed.$(date +%Y%m%d%H%M%S)"
-      cp -a /etc/postfix/main.cf "$backup"
-      read -r -a tokens <<< "$current"
-      new=""
-      for token in "${tokens[@]}"; do
-        if [ "$token" != "$MILTER_TOKEN" ]; then
-          new+="${new:+ }${token}"
-        fi
-      done
-      postconf -e "smtpd_milters = ${new}"
-      postfix check
-      systemctl reload postfix
-      echo "  backup: $backup"
-      echo "  nuovo valore: $(postconf -h smtpd_milters)"
-    else
-      echo "  (dry-run) rimuovere ${MILTER_TOKEN} da smtpd_milters e ricaricare postfix"
-    fi
-    ;;
-  *) echo "  token non presente, nulla da fare" ;;
-esac
+milters=()
+if ! split_milters "$current"; then
+  echo "smtpd_milters non valido: parentesi graffe sbilanciate" >&2
+  exit 1
+fi
+new=""
+found=0
+for entry in "${milters[@]}"; do
+  endpoint=$entry
+  if [[ $entry =~ ^[{][[:space:]]*([^[:space:],{}]+) ]]; then
+    endpoint=${BASH_REMATCH[1]}
+  fi
+  if [[ $endpoint == "$MILTER_TOKEN" ]]; then
+    found=1
+  else
+    new+="${new:+ }${entry}"
+  fi
+done
+
+if [ "$found" -eq 0 ]; then
+  echo "  token non presente, nulla da fare"
+elif [ "$APPLY" -eq 1 ]; then
+  backup="/etc/postfix/main.cf.first-contact-removed.$(date +%Y%m%d%H%M%S)"
+  cp -a /etc/postfix/main.cf "$backup"
+  postconf -e "smtpd_milters = ${new}"
+  postfix check
+  systemctl reload postfix
+  echo "  backup: $backup"
+  echo "  nuovo valore: $(postconf -h smtpd_milters)"
+else
+  echo "  (dry-run) rimuovere ${MILTER_TOKEN} da smtpd_milters e ricaricare postfix"
+fi
 
 echo "== servizio"
 run systemctl disable --now "$SERVICE" || true

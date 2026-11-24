@@ -47,6 +47,27 @@ if name == "postconf" and "-h" in sys.argv:
             "inet:127.0.0.1:11332 unix:/first-contact/milter.sock unix:/dkim/milter.sock")
         self.assertIn(["postconf", "-e", "smtpd_milters = inet:127.0.0.1:11332 unix:/dkim/milter.sock"], commands)
 
+    def test_comma_separated_milter_is_removed_before_service_is_stopped(self):
+        first_contact = "unix:/first-contact/milter.sock"
+        rspamd = "inet:127.0.0.1:11332"
+        dkim = "unix:/dkim/milter.sock"
+        grouped_dkim = "{ " + dkim + ", connect_timeout=10s, default_action=accept }"
+        cases = (
+            (first_contact + "," + rspamd, rspamd),
+            (rspamd + ", " + first_contact + " " + dkim, rspamd + " " + dkim),
+            (rspamd + " ," + first_contact, rspamd),
+            (grouped_dkim + "," + first_contact, grouped_dkim),
+            (rspamd + ", { " + first_contact + ", default_action=accept }", rspamd),
+        )
+        for current, remaining in cases:
+            with self.subTest(current=current):
+                commands = self.run_uninstaller(current)
+                edit = commands.index(["postconf", "-e", "smtpd_milters = " + remaining])
+                reload = commands.index(["systemctl", "reload", "postfix"])
+                stop = commands.index(["systemctl", "disable", "--now", "first-contact-milter"])
+                self.assertLess(edit, reload)
+                self.assertLess(reload, stop)
+
     def test_empty_or_absent_token_does_not_reconfigure_postfix(self):
         for current in ("", "inet:127.0.0.1:11332"):
             with self.subTest(current=current):
