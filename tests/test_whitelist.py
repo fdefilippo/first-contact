@@ -4,6 +4,9 @@ import shutil
 import tempfile
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor, wait
+from threading import Event
+from unittest.mock import patch
 
 from firstcontact.config import Config, ConfigError
 from firstcontact.policy import Policy
@@ -143,6 +146,47 @@ class FileTest(unittest.TestCase):
         os.replace(replacement, self.path)
         self.assertIsNone(whitelist.matches("old@example.org", None))
         self.assertIsNotNone(whitelist.matches("new@example.org", None))
+
+    def test_overlapping_reload_does_not_republish_old_file_rules(self):
+        from firstcontact import whitelist as module
+
+        self.write("old@example.org\n")
+        whitelist = SenderWhitelist(self.path)
+        parse_entry = module._parse_entry
+        old_read = Event()
+        release_old_read = Event()
+        new_reload_started = Event()
+
+        def pause_old_read(line):
+            if line.strip() == "old@example.org":
+                old_read.set()
+                self.assertTrue(release_old_read.wait(5))
+            return parse_entry(line)
+
+        def reload_replacement():
+            new_reload_started.set()
+            return whitelist.matches("new@example.net", None)
+
+        with patch.object(module, "_parse_entry", pause_old_read):
+            with ThreadPoolExecutor(max_workers=2) as workers:
+                older = workers.submit(whitelist.reload)
+                try:
+                    self.assertTrue(old_read.wait(5))
+                    replacement = self.path + ".new"
+                    with open(replacement, "w", encoding="utf-8") as handle:
+                        handle.write("@example.net\n")
+                    os.replace(replacement, self.path)
+                    newer = workers.submit(reload_replacement)
+                    self.assertTrue(new_reload_started.wait(5))
+                    # The unfixed reload can complete while the old read is paused.
+                    wait([newer], timeout=0.5)
+                finally:
+                    release_old_read.set()
+                older.result(timeout=5)
+                self.assertEqual(newer.result(timeout=5), "domain:example.net")
+
+        # Unlike matches(), summary() does not reload from disk.
+        self.assertEqual(whitelist.summary(), "0 indirizzi, 1 dominio, 0 reti")
 
     def test_invalid_line_does_not_hide_valid_ones(self):
         self.write("!!!\nmario@example.com\n")

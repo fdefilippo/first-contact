@@ -12,7 +12,7 @@ configurazione):
     # commento                   (solo nel file)
 
 Il file indicato in ``[whitelist] file`` viene riletto automaticamente quando
-cambia (mtime/dimensione): si possono aggiungere o togliere voci senza
+cambia: si possono aggiungere o togliere voci senza
 riavviare il servizio. Le righe non valide del file vengono ignorate con un
 avviso nei log; gli errori nella configurazione INI invece bloccano l'avvio.
 """
@@ -21,7 +21,8 @@ import ipaddress
 import logging
 import os
 import re
-from typing import List, Optional, Sequence, Tuple
+from threading import Lock
+from typing import List, Optional, Sequence, Set, Tuple
 
 from .policy import address_domain, is_address_like, normalize_address
 
@@ -42,10 +43,11 @@ class SenderWhitelist:
         self.domains = set()
         self.networks: List[ipaddress._BaseNetwork] = []
         self.warnings: List[str] = []
+        self._reload_lock = Lock()
         self._file_signature: Optional[Tuple[int, int, int, int, int]] = None
-        self._file_addresses = set()
-        self._file_domains = set()
-        self._file_networks: List[ipaddress._BaseNetwork] = []
+        self._file_rules: Tuple[Set[str], Set[str], List[ipaddress._BaseNetwork]] = (
+            set(), set(), [],
+        )
         self._file_missing_logged = False
 
     # -- caricamento ------------------------------------------------------
@@ -61,6 +63,11 @@ class SenderWhitelist:
         """Rilegge il file se e' cambiato. Errori non bloccanti."""
         if not self.path:
             return
+        # Firma, lettura e pubblicazione devono seguire lo stesso ordine.
+        with self._reload_lock:
+            self._load_file()
+
+    def _load_file(self) -> None:
         try:
             info = os.stat(self.path)
         except OSError:
@@ -96,9 +103,8 @@ class SenderWhitelist:
         except OSError as exc:
             log.warning("lettura di %s fallita: %s", self.path, exc)
             return
-        self._file_addresses = addresses
-        self._file_domains = domains
-        self._file_networks = networks
+        # I lettori usano tutte le regole della stessa versione del file.
+        self._file_rules = (addresses, domains, networks)
         self._file_signature = signature
         self.warnings = warnings
         for warning in warnings:
@@ -127,15 +133,16 @@ class SenderWhitelist:
     def matches(self, sender: Optional[str], client_addr: Optional[str]) -> Optional[str]:
         """Ritorna la regola che ha fatto match, oppure ``None``."""
         self.load_file()
+        file_addresses, file_domains, file_networks = self._file_rules
 
         address = normalize_address(sender)
         if address and is_address_like(address):
-            for rule in (self.addresses, self._file_addresses):
+            for rule in (self.addresses, file_addresses):
                 if address in rule:
                     return "address:" + address
             domain = address_domain(address)
             if domain:
-                for rule in (self.domains, self._file_domains):
+                for rule in (self.domains, file_domains):
                     if _domain_matches(domain, rule):
                         return "domain:" + domain
 
@@ -145,16 +152,17 @@ class SenderWhitelist:
             except ValueError:
                 ip = None
             if ip is not None:
-                for network in list(self.networks) + list(self._file_networks):
+                for network in self.networks + file_networks:
                     if ip.version == network.version and ip in network:
                         return "cidr:" + str(network)
         return None
 
     def summary(self) -> str:
+        file_addresses, file_domains, file_networks = self._file_rules
         return "%s, %s, %s" % (
-            _count(len(self.addresses) + len(self._file_addresses), "indirizzo", "indirizzi"),
-            _count(len(self.domains) + len(self._file_domains), "dominio", "domini"),
-            _count(len(self.networks) + len(self._file_networks), "rete", "reti"),
+            _count(len(self.addresses) + len(file_addresses), "indirizzo", "indirizzi"),
+            _count(len(self.domains) + len(file_domains), "dominio", "domini"),
+            _count(len(self.networks) + len(file_networks), "rete", "reti"),
         )
 
 
